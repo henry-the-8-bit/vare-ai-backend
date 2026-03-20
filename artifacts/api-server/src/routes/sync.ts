@@ -4,12 +4,10 @@ import { syncJobsTable, magentoConnectionsTable } from "@workspace/db/schema";
 import { eq, and, desc } from "drizzle-orm";
 import { z } from "zod/v4";
 import { requireAuth } from "../middlewares/auth.js";
-import { successResponse, errorResponse, paginatedResponse } from "../lib/response.js";
+import { successResponse, errorResponse } from "../lib/response.js";
 import { catalogSyncService } from "../services/catalogSync.js";
 
 const router: IRouter = Router();
-
-let syncConfigs: Map<string, Record<string, unknown>> = new Map();
 
 const syncConfigSchema = z.object({
   productTypes: z.array(z.string()).optional().default(["simple", "configurable", "grouped", "bundle"]),
@@ -28,7 +26,21 @@ router.post("/sync/configure", requireAuth, async (req: Request, res: Response) 
     return;
   }
 
-  syncConfigs.set(merchantId, parsed.data);
+  const [conn] = await db
+    .select({ id: magentoConnectionsTable.id })
+    .from(magentoConnectionsTable)
+    .where(eq(magentoConnectionsTable.merchantId, merchantId))
+    .limit(1);
+
+  if (!conn) {
+    errorResponse(res, "No Magento connection configured. Submit credentials first.", "NO_CONNECTION", 400);
+    return;
+  }
+
+  await db
+    .update(magentoConnectionsTable)
+    .set({ syncConfig: parsed.data })
+    .where(eq(magentoConnectionsTable.merchantId, merchantId));
 
   successResponse(res, {
     configured: true,
@@ -40,7 +52,7 @@ router.post("/sync/start", requireAuth, async (req: Request, res: Response) => {
   const merchantId = req.merchantId!;
 
   const [conn] = await db
-    .select({ id: magentoConnectionsTable.id, connectionStatus: magentoConnectionsTable.connectionStatus })
+    .select({ id: magentoConnectionsTable.id, connectionStatus: magentoConnectionsTable.connectionStatus, syncConfig: magentoConnectionsTable.syncConfig })
     .from(magentoConnectionsTable)
     .where(eq(magentoConnectionsTable.merchantId, merchantId))
     .limit(1);
@@ -51,7 +63,7 @@ router.post("/sync/start", requireAuth, async (req: Request, res: Response) => {
   }
 
   const syncType = req.body?.type === "delta" ? "delta" : "full";
-  const config = syncConfigs.get(merchantId) ?? { productTypes: ["simple", "configurable"], status: ["1"] };
+  const config = (conn.syncConfig as Record<string, unknown> | null) ?? { productTypes: ["simple", "configurable"], status: ["1"] };
 
   let job;
   if (syncType === "delta") {

@@ -6,6 +6,7 @@ import {
   integer,
   timestamp,
   real,
+  jsonb,
 } from "drizzle-orm/pg-core";
 import { merchantsTable } from "./merchants";
 
@@ -26,6 +27,7 @@ export const magentoConnectionsTable = pgTable("magento_connections", {
   connectionStatus: varchar("connection_status", { length: 20 }).default("pending"),
   lastHealthCheck: timestamp("last_health_check"),
   apiHealthPct: real("api_health_pct").default(100.0),
+  syncConfig: jsonb("sync_config"),
   createdAt: timestamp("created_at").defaultNow(),
 });
 
