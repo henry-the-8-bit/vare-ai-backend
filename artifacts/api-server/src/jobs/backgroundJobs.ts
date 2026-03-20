@@ -31,29 +31,47 @@ async function runHealthCheck() {
   }
 }
 
+/**
+ * Recomputes agent readiness scores for merchants that have pending normalization.
+ * Updates normalized_products rows by recalculating a composite readiness score
+ * based on available fields (title, price, category, images, fitment data).
+ * Triggered on a 6h cadence as a post-normalization sweep.
+ */
 async function runReadinessRecompute() {
   try {
-    const merchants = await db.select({ id: merchantsTable.id }).from(merchantsTable).where(eq(merchantsTable.isLive, true)).limit(50);
+    const merchants = await db
+      .select({ id: merchantsTable.id })
+      .from(merchantsTable)
+      .where(eq(merchantsTable.isLive, true))
+      .limit(50);
+
     for (const merchant of merchants) {
-      const [result] = await db
-        .select({ cnt: sql<number>`count(*)` })
-        .from(normalizedProductsTable)
-        .where(
-          and(
-            eq(normalizedProductsTable.merchantId, merchant.id),
-            sql`normalization_status = 'pending'`,
-          ),
-        );
-      const pending = Number(result?.cnt ?? 0);
-      if (pending > 0) {
-        logger.info({ merchantId: merchant.id, pending }, "[readiness] Pending normalization detected");
-      }
+      const updated = await db.execute(sql`
+        UPDATE normalized_products
+        SET agent_readiness_score = LEAST(100, (
+          CASE WHEN product_title IS NOT NULL AND length(product_title) > 3 THEN 25 ELSE 0 END +
+          CASE WHEN price IS NOT NULL AND price::numeric > 0 THEN 25 ELSE 0 END +
+          CASE WHEN category_path IS NOT NULL THEN 15 ELSE 0 END +
+          CASE WHEN brand IS NOT NULL THEN 10 ELSE 0 END +
+          CASE WHEN mpn IS NOT NULL THEN 10 ELSE 0 END +
+          CASE WHEN image_urls IS NOT NULL AND jsonb_array_length(image_urls) > 0 THEN 10 ELSE 0 END +
+          CASE WHEN fitment_data IS NOT NULL AND fitment_data != '{}'::jsonb THEN 5 ELSE 0 END
+        ))
+        WHERE merchant_id = ${merchant.id}
+          AND normalization_status IN ('normalized', 'reviewed')
+      `);
+      logger.info({ merchantId: merchant.id, rowCount: updated.rowCount }, "[readiness] Score recomputed");
     }
   } catch (err) {
     logger.error({ err }, "[readiness] Recompute failed");
   }
 }
 
+/**
+ * Queues inventory batch probe jobs for each live merchant based on their
+ * configured rate limit per minute (higher rate limit → more SKUs probed per run).
+ * Probes SKUs whose lastProbed timestamp is older than 24h.
+ */
 async function runInventoryBatchProbe() {
   try {
     const merchants = await db
@@ -69,6 +87,10 @@ async function runInventoryBatchProbe() {
         .where(eq(agentConfigsTable.merchantId, merchant.id))
         .limit(1);
 
+      const batchSize = config?.rateLimitPerMinute
+        ? Math.min(config.rateLimitPerMinute * 60, 5000)
+        : 1000;
+
       const staleThreshold = new Date();
       staleThreshold.setHours(staleThreshold.getHours() - 24);
 
@@ -81,19 +103,19 @@ async function runInventoryBatchProbe() {
             lt(inventoryTable.lastProbed, staleThreshold),
           ),
         )
-        .limit(config?.rateLimitPerMinute ? Math.min(config.rateLimitPerMinute * 60, 5000) : 1000);
+        .limit(batchSize);
 
       if (staleSkus.length === 0) {
         logger.info({ merchantId: merchant.id }, "[inventory-probe] No stale SKUs to probe");
         continue;
       }
 
-      const jobRecord = await db
+      const [jobRecord] = await db
         .insert(syncJobsTable)
         .values({
           merchantId: merchant.id,
           jobType: "inventory_probe",
-          status: "in_progress",
+          status: "queued",
           totalRecords: staleSkus.length,
           processedRecords: 0,
           errorCount: 0,
@@ -101,18 +123,10 @@ async function runInventoryBatchProbe() {
         })
         .returning({ id: syncJobsTable.id });
 
-      logger.info({ merchantId: merchant.id, skuCount: staleSkus.length, jobId: jobRecord[0]?.id }, "[inventory-probe] Queued inventory probe");
-
-      await db
-        .update(syncJobsTable)
-        .set({
-          status: "queued",
-          processedRecords: staleSkus.length,
-          completedAt: new Date(),
-          durationSeconds: 0,
-        })
-        .where(eq(syncJobsTable.id, jobRecord[0]!.id))
-        .catch(() => {});
+      logger.info(
+        { merchantId: merchant.id, skuCount: staleSkus.length, jobId: jobRecord?.id, batchSize },
+        "[inventory-probe] Queued inventory probe job",
+      );
     }
   } catch (err) {
     logger.error({ err }, "[inventory-probe] Job failed");
@@ -190,5 +204,5 @@ export function startBackgroundJobs() {
     runDailyInsights().catch((err) => logger.error({ err }, "[insights] Uncaught error"));
   }, TWENTY_FOUR_HOURS);
 
-  logger.info("Background jobs started: health-check (5m), readiness (6h), delta-sync (6h), inventory-probe (4h), insights (24h)");
+  logger.info("Background jobs started: health-check (5m), readiness (6h), delta-sync (6h), inventory-probe (4h per config batch size), insights (24h)");
 }

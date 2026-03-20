@@ -71,9 +71,16 @@ const DEMO_SLUG = "acme-auto";
 const PRODUCT_BATCH = 500;
 const TOTAL_PRODUCTS = 50000;
 const QUERIES_PER_DAY = 1000;
+const ORDERS_PER_DAY_MIN = 20;
+const ORDERS_PER_DAY_MAX = 30;
 const DAYS = 30;
 
 router.post("/seed-mock-data", async (req: Request, res: Response) => {
+  if (process.env["NODE_ENV"] === "production") {
+    res.status(403).json({ success: false, error: "Seeder is disabled in production" });
+    return;
+  }
+
   const force = req.body?.force === true;
 
   try {
@@ -331,56 +338,58 @@ router.post("/seed-mock-data", async (req: Request, res: Response) => {
           sessionId,
           createdAt: ts,
         });
+      }
 
-        if (wasMatched && Math.random() < 0.12) {
-          const sku = matchedSkus[0]!;
-          const cartTs = new Date(ts.getTime() + rnd(1000, 30000));
-          allTransactions.push({
-            merchantId,
-            agentPlatform: platform,
-            eventType: "cart_create",
-            status: "success",
-            sku,
-            durationMs: rnd(100, 500),
-            sessionId,
-            createdAt: cartTs,
-          });
+      const ordersPerDay = rnd(ORDERS_PER_DAY_MIN, ORDERS_PER_DAY_MAX);
+      for (let o = 0; o < ordersPerDay; o++) {
+        const platform = pickRandom(PLATFORMS);
+        const sku = skuList[rnd(0, skuList.length - 1)]!;
+        const sessionId = `ord-sess-${day}-${o}`;
+        const ts = daysAgo(day);
+        const cartTs = new Date(ts.getTime() + rnd(5000, 60000));
+        const orderTs = new Date(cartTs.getTime() + rnd(3000, 30000));
+        const qty = rnd(1, 4);
+        const price = rndFloat(9.99, 249.99);
+        const orderStatus = pickRandom(ORDER_STATUSES);
+        const ref = `vare-seed-${day}-${o}`;
 
-          if (Math.random() < 0.8) {
-            const qty = rnd(1, 4);
-            const price = rndFloat(9.99, 249.99);
-            const orderStatus = pickRandom(ORDER_STATUSES);
-            const orderTs = new Date(cartTs.getTime() + rnd(1000, 15000));
-            const ref = `vare-seed-${day}-${q}`;
+        allTransactions.push({
+          merchantId,
+          agentPlatform: platform,
+          eventType: "cart_create",
+          status: "success",
+          sku,
+          durationMs: rnd(100, 500),
+          sessionId,
+          createdAt: cartTs,
+        });
 
-            allOrders.push({
-              merchantId,
-              agentOrderRef: ref,
-              agentPlatform: platform,
-              sku,
-              productTitle: `Seed Product ${sku}`,
-              quantity: qty,
-              unitPrice: String(price),
-              totalPrice: String(Math.round(price * qty * 100) / 100),
-              orderStatus,
-              paymentMethod: "vare_ai",
-              shippingMethod: "flatrate_flatrate",
-              createdAt: orderTs,
-              updatedAt: orderTs,
-            });
+        allOrders.push({
+          merchantId,
+          agentOrderRef: ref,
+          agentPlatform: platform,
+          sku,
+          productTitle: `Seed Product ${sku}`,
+          quantity: qty,
+          unitPrice: String(price),
+          totalPrice: String(Math.round(price * qty * 100) / 100),
+          orderStatus,
+          paymentMethod: "vare_ai",
+          shippingMethod: "flatrate_flatrate",
+          createdAt: orderTs,
+          updatedAt: orderTs,
+        });
 
-            allTransactions.push({
-              merchantId,
-              agentPlatform: platform,
-              eventType: "checkout",
-              status: orderStatus === "failed" ? "error" : "success",
-              sku,
-              durationMs: rnd(200, 2000),
-              sessionId,
-              createdAt: orderTs,
-            });
-          }
-        }
+        allTransactions.push({
+          merchantId,
+          agentPlatform: platform,
+          eventType: "checkout",
+          status: orderStatus === "failed" ? "error" : "success",
+          sku,
+          durationMs: rnd(200, 2000),
+          sessionId,
+          createdAt: orderTs,
+        });
       }
 
       for (let i = 0; i < allQueries.length; i += 500) {
