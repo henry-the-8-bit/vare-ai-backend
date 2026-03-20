@@ -147,7 +147,7 @@ export async function getKpis(merchantId: string, range: DateRange) {
   const pctChange = (current: number, prev: number) =>
     prev === 0 ? (current > 0 ? 100 : 0) : Math.round(((current - prev) / prev) * 1000) / 10;
 
-  const [ordersSparkRaw, revenueSparkRaw] = await Promise.all([
+  const [ordersSparkRaw, revenueSparkRaw, platformRows] = await Promise.all([
     db
       .select({
         date: sql<string>`to_char(created_at, 'YYYY-MM-DD')`,
@@ -179,6 +179,24 @@ export async function getKpis(merchantId: string, range: DateRange) {
       )
       .groupBy(sql`to_char(created_at, 'YYYY-MM-DD')`)
       .orderBy(sql`to_char(created_at, 'YYYY-MM-DD')`),
+    db
+      .select({
+        platform: agentOrdersTable.agentPlatform,
+        orders: sql<number>`count(*)`,
+        revenue: sql<number>`coalesce(sum(total_price::numeric), 0)`,
+      })
+      .from(agentOrdersTable)
+      .where(
+        and(
+          eq(agentOrdersTable.merchantId, merchantId),
+          gte(agentOrdersTable.createdAt, from),
+          lte(agentOrdersTable.createdAt, to),
+          sql`order_status NOT IN ('cancelled', 'failed')`,
+        ),
+      )
+      .groupBy(agentOrdersTable.agentPlatform)
+      .orderBy(sql`count(*) desc`)
+      .limit(10),
   ]);
 
   return {
@@ -207,6 +225,11 @@ export async function getKpis(merchantId: string, range: DateRange) {
       pctChange: pctChange(aov, prevAov),
       sparkline: buildSparkline([]),
     },
+    platforms: platformRows.map((r) => ({
+      platform: r.platform ?? "unknown",
+      orders: Number(r.orders),
+      revenue: Math.round(Number(r.revenue) * 100) / 100,
+    })),
   };
 }
 

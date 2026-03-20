@@ -13,8 +13,10 @@ import {
   systemAlertsTable,
   insightsTable,
   attributeMappingsTable,
+  magentoConnectionsTable,
 } from "@workspace/db/schema";
 import { eq, sql } from "drizzle-orm";
+import { requireAuth } from "../middlewares/auth.js";
 import { successResponse, errorResponse } from "../lib/response.js";
 import { generateApiKey } from "../lib/crypto.js";
 import { logger } from "../lib/logger.js";
@@ -55,7 +57,7 @@ function rndFloat(min: number, max: number) {
   return Math.round((Math.random() * (max - min) + min) * 100) / 100;
 }
 
-function daysAgo(days: number, jitterHours = 12) {
+function daysAgo(days: number) {
   const d = new Date();
   d.setDate(d.getDate() - days);
   d.setHours(rnd(0, 23), rnd(0, 59), rnd(0, 59), 0);
@@ -66,33 +68,33 @@ function pickRandom<T>(arr: readonly T[]): T {
   return arr[Math.floor(Math.random() * arr.length)]!;
 }
 
-router.post("/seed-mock-data", async (req: Request, res: Response) => {
+const PRODUCT_BATCH = 500;
+const TOTAL_PRODUCTS = 50000;
+const QUERIES_PER_DAY = 1000;
+const DAYS = 30;
+
+router.post("/seed-mock-data", requireAuth, async (req: Request, res: Response) => {
   const force = req.body?.force === true;
 
   try {
-    const existingMerchant = await db
-      .select({ id: merchantsTable.id, slug: merchantsTable.slug })
-      .from(merchantsTable)
-      .where(sql`slug = 'acme-auto'`)
-      .limit(1);
+    const merchantId = req.merchantId!;
 
-    if (existingMerchant.length > 0 && !force) {
-      const products = await db
-        .select({ cnt: sql<number>`count(*)` })
-        .from(normalizedProductsTable)
-        .where(eq(normalizedProductsTable.merchantId, existingMerchant[0]!.id));
+    const [productCountRow] = await db
+      .select({ cnt: sql<number>`count(*)` })
+      .from(normalizedProductsTable)
+      .where(eq(normalizedProductsTable.merchantId, merchantId));
+
+    const existingCount = Number(productCountRow?.cnt ?? 0);
+
+    if (existingCount >= TOTAL_PRODUCTS && !force) {
       successResponse(res, {
         message: "Mock data already seeded. Pass force=true to re-seed.",
-        merchantId: existingMerchant[0]!.id,
-        productCount: Number(products[0]?.cnt ?? 0),
+        stats: { existingProducts: existingCount },
       });
       return;
     }
 
-    let merchantId: string;
-
-    if (existingMerchant.length > 0 && force) {
-      merchantId = existingMerchant[0]!.id;
+    if (force) {
       await Promise.all([
         db.delete(normalizedProductsTable).where(eq(normalizedProductsTable.merchantId, merchantId)),
         db.delete(agentQueriesTable).where(eq(agentQueriesTable.merchantId, merchantId)),
@@ -104,48 +106,39 @@ router.post("/seed-mock-data", async (req: Request, res: Response) => {
         db.delete(systemAlertsTable).where(eq(systemAlertsTable.merchantId, merchantId)),
         db.delete(insightsTable).where(eq(insightsTable.merchantId, merchantId)),
         db.delete(attributeMappingsTable).where(eq(attributeMappingsTable.merchantId, merchantId)),
+        db.delete(magentoConnectionsTable).where(eq(magentoConnectionsTable.merchantId, merchantId)),
       ]);
-    } else {
-      const apiKey = await generateApiKey();
-      const [merchant] = await db
-        .insert(merchantsTable)
-        .values({
-          slug: "acme-auto",
-          companyName: "Acme Auto Parts",
-          contactFirstName: "Jane",
-          contactLastName: "Smith",
-          contactEmail: "jane@acmeauto.example.com",
-          contactPhone: "555-867-5309",
-          estimatedSkuCount: "50000",
-          primaryVertical: "automotive",
-          magentoVersion: "2.4.6",
-          hostingEnvironment: "adobe-commerce-cloud",
-          complexityScore: 72,
-          onboardingPhase: 10,
-          onboardingStatus: "complete",
-          apiKey,
-          sandboxMode: false,
-          isLive: true,
-        })
-        .returning({ id: merchantsTable.id });
-      merchantId = merchant!.id;
-
-      await db.insert(agentConfigsTable).values({
-        merchantId,
-        rateLimitPerMinute: 120,
-        requireCartConfirmation: false,
-        maxOrderValueCents: null,
-        defaultShippingMethod: "flatrate_flatrate",
-        defaultPaymentMethod: "vare_ai",
-        testOrderEnabled: true,
-        enabledCapabilities: ["search", "cart", "checkout"],
-      });
     }
 
     logger.info({ merchantId }, "Seeding mock data...");
 
-    const PRODUCT_BATCH = 500;
-    const TOTAL_PRODUCTS = 1000;
+    await db
+      .insert(magentoConnectionsTable)
+      .values({
+        merchantId,
+        storeUrl: "https://demo-store.acmeauto.example.com",
+        storeName: "Acme Auto Parts Store",
+        detectedVersion: "2.4.6",
+        baseCurrency: "USD",
+        locale: "en_US",
+        connectionStatus: "healthy",
+        lastHealthCheck: new Date(),
+        apiHealthPct: 99.2,
+        syncConfig: { syncInventory: true, syncPrices: true, deltaEnabled: true },
+      })
+      .onConflictDoNothing();
+
+    await db.insert(agentConfigsTable).values({
+      merchantId,
+      rateLimitPerMinute: 90,
+      requireCartConfirmation: false,
+      maxOrderValueCents: null,
+      defaultShippingMethod: "flatrate_flatrate",
+      defaultPaymentMethod: "vare_ai",
+      testOrderEnabled: true,
+      enabledCapabilities: ["search", "cart", "checkout"],
+    }).onConflictDoNothing();
+
     let insertedProducts = 0;
     const skuList: string[] = [];
 
@@ -156,7 +149,7 @@ router.post("/seed-mock-data", async (req: Request, res: Response) => {
         const category = pickRandom(CATEGORIES);
         const catShort = category.split("/")[1] ?? "Part";
         const sku = `ACME-${String(idx).padStart(6, "0")}`;
-        const normStatus = (["normalized", "normalized", "normalized", "reviewed", "pending"] as const)[rnd(0, 4)]!
+        const normStatus = (["normalized", "normalized", "normalized", "reviewed", "pending"] as const)[rnd(0, 4)]!;
         skuList.push(sku);
         return {
           merchantId,
@@ -176,15 +169,13 @@ router.post("/seed-mock-data", async (req: Request, res: Response) => {
 
       await db.insert(normalizedProductsTable).values(products).onConflictDoNothing();
       insertedProducts += products.length;
+
+      if (batch % 10 === 0) {
+        logger.info({ batch: batch + 1, total: TOTAL_PRODUCTS / PRODUCT_BATCH, insertedProducts }, "Product batch inserted");
+      }
     }
 
-    const invBatch: Array<{
-      merchantId: string;
-      sku: string;
-      quantity: number;
-      isInStock: boolean;
-      lastProbed: Date;
-    }> = skuList.map((sku) => {
+    const invBatch = skuList.map((sku) => {
       const qty = rnd(0, 200);
       return {
         merchantId,
@@ -194,8 +185,9 @@ router.post("/seed-mock-data", async (req: Request, res: Response) => {
         lastProbed: daysAgo(rnd(0, 2)),
       };
     });
-    for (let i = 0; i < invBatch.length; i += 200) {
-      await db.insert(inventoryTable).values(invBatch.slice(i, i + 200)).onConflictDoNothing();
+
+    for (let i = 0; i < invBatch.length; i += 500) {
+      await db.insert(inventoryTable).values(invBatch.slice(i, i + 500)).onConflictDoNothing();
     }
 
     const syncJobTypes = ["full_sync", "delta_sync", "inventory_probe", "normalization"];
@@ -204,7 +196,7 @@ router.post("/seed-mock-data", async (req: Request, res: Response) => {
       const dayOffset = Math.floor(i / 3);
       const jobType = pickRandom(syncJobTypes);
       const status = i === 0 ? "in_progress" : pickRandom(syncStatuses);
-      const total = rnd(500, 2000);
+      const total = rnd(5000, 50000);
       const processed = status === "in_progress" ? rnd(0, total) : status === "completed" ? total : rnd(0, total);
       const errCount = status === "failed" ? rnd(5, 50) : 0;
       const started = daysAgo(dayOffset);
@@ -248,23 +240,30 @@ router.post("/seed-mock-data", async (req: Request, res: Response) => {
       "transmission fluid synthetic",
       "ceramic brake rotors front",
       "spark plugs iridium 4 cylinder",
+      "wiper blades 24 inch",
+      "serpentine belt Toyota Tacoma",
+      "coolant temperature sensor Dodge",
+      "mass air flow sensor cleaning",
+      "tire pressure monitor reset",
     ];
 
-    const allQueries: Array<typeof agentQueriesTable.$inferInsert> = [];
-    const allTransactions: Array<typeof transactionEventsTable.$inferInsert> = [];
-    const allOrders: Array<typeof agentOrdersTable.$inferInsert> = [];
+    let totalQueries = 0;
+    let totalOrders = 0;
+    let totalTransactions = 0;
 
-    for (let day = 29; day >= 0; day--) {
-      const queriesPerDay = rnd(800, 1200);
-      const ordersPerDay = rnd(20, 30);
+    for (let day = DAYS - 1; day >= 0; day--) {
+      const allQueries: Array<typeof agentQueriesTable.$inferInsert> = [];
+      const allTransactions: Array<typeof transactionEventsTable.$inferInsert> = [];
+      const allOrders: Array<typeof agentOrdersTable.$inferInsert> = [];
 
-      for (let q = 0; q < queriesPerDay; q++) {
+      for (let q = 0; q < QUERIES_PER_DAY; q++) {
         const platform = pickRandom(PLATFORMS);
         const intent = pickRandom(INTENT_CLUSTERS);
         const queryText = Math.random() > 0.3 ? pickRandom(queryTexts) : null;
         const wasMatched = Math.random() > 0.25;
         const matchedSkus = wasMatched ? [skuList[rnd(0, skuList.length - 1)]!] : [];
         const responseTimeMs = rnd(50, 800);
+        const sessionId = `sess-${day}-${q}`;
         const ts = daysAgo(day);
 
         allQueries.push({
@@ -275,7 +274,7 @@ router.post("/seed-mock-data", async (req: Request, res: Response) => {
           resultCount: wasMatched ? rnd(1, 20) : 0,
           wasMatched,
           intentCluster: intent,
-          sessionId: `sess-${day}-${q}`,
+          sessionId,
           responseTimeMs,
           createdAt: ts,
         });
@@ -287,57 +286,74 @@ router.post("/seed-mock-data", async (req: Request, res: Response) => {
           status: "success",
           sku: matchedSkus[0] ?? null,
           durationMs: responseTimeMs,
-          sessionId: `sess-${day}-${q}`,
+          sessionId,
           createdAt: ts,
         });
+
+        if (wasMatched && Math.random() < 0.12) {
+          const sku = matchedSkus[0]!;
+          const cartTs = new Date(ts.getTime() + rnd(1000, 30000));
+          allTransactions.push({
+            merchantId,
+            agentPlatform: platform,
+            eventType: "cart_create",
+            status: "success",
+            sku,
+            durationMs: rnd(100, 500),
+            sessionId,
+            createdAt: cartTs,
+          });
+
+          if (Math.random() < 0.8) {
+            const qty = rnd(1, 4);
+            const price = rndFloat(9.99, 249.99);
+            const orderStatus = pickRandom(ORDER_STATUSES);
+            const orderTs = new Date(cartTs.getTime() + rnd(1000, 15000));
+            const ref = `vare-seed-${day}-${q}`;
+
+            allOrders.push({
+              merchantId,
+              agentOrderRef: ref,
+              agentPlatform: platform,
+              sku,
+              productTitle: `Seed Product ${sku}`,
+              quantity: qty,
+              unitPrice: String(price),
+              totalPrice: String(Math.round(price * qty * 100) / 100),
+              orderStatus,
+              paymentMethod: "vare_ai",
+              shippingMethod: "flatrate_flatrate",
+              createdAt: orderTs,
+              updatedAt: orderTs,
+            });
+
+            allTransactions.push({
+              merchantId,
+              agentPlatform: platform,
+              eventType: "checkout",
+              status: orderStatus === "failed" ? "error" : "success",
+              sku,
+              durationMs: rnd(200, 2000),
+              sessionId,
+              createdAt: orderTs,
+            });
+          }
+        }
       }
 
-      for (let o = 0; o < ordersPerDay; o++) {
-        const platform = pickRandom(PLATFORMS);
-        const sku = pickRandom(skuList);
-        const qty = rnd(1, 4);
-        const price = rndFloat(9.99, 249.99);
-        const status = pickRandom(ORDER_STATUSES);
-        const ts = daysAgo(day);
-        const ref = `vare-seed-${day}-${o}`;
-
-        allOrders.push({
-          merchantId,
-          agentOrderRef: ref,
-          agentPlatform: platform,
-          sku,
-          productTitle: `Seed Product ${sku}`,
-          quantity: qty,
-          unitPrice: String(price),
-          totalPrice: String(Math.round(price * qty * 100) / 100),
-          orderStatus: status,
-          paymentMethod: "vare_ai",
-          shippingMethod: "flatrate_flatrate",
-          createdAt: ts,
-          updatedAt: ts,
-        });
-
-        allTransactions.push({
-          merchantId,
-          agentPlatform: platform,
-          eventType: "checkout",
-          status: status === "failed" ? "error" : "success",
-          sku,
-          durationMs: rnd(200, 2000),
-          sessionId: `sess-order-${day}-${o}`,
-          createdAt: ts,
-        });
+      for (let i = 0; i < allQueries.length; i += 500) {
+        await db.insert(agentQueriesTable).values(allQueries.slice(i, i + 500));
       }
-    }
+      for (let i = 0; i < allTransactions.length; i += 500) {
+        await db.insert(transactionEventsTable).values(allTransactions.slice(i, i + 500));
+      }
+      for (let i = 0; i < allOrders.length; i += 200) {
+        await db.insert(agentOrdersTable).values(allOrders.slice(i, i + 200));
+      }
 
-    for (let i = 0; i < allQueries.length; i += 500) {
-      await db.insert(agentQueriesTable).values(allQueries.slice(i, i + 500));
-    }
-    for (let i = 0; i < allTransactions.length; i += 500) {
-      await db.insert(transactionEventsTable).values(allTransactions.slice(i, i + 500));
-    }
-    for (let i = 0; i < allOrders.length; i += 200) {
-      await db.insert(agentOrdersTable).values(allOrders.slice(i, i + 200));
+      totalQueries += allQueries.length;
+      totalOrders += allOrders.length;
+      totalTransactions += allTransactions.length;
     }
 
     await db.insert(systemAlertsTable).values([
@@ -372,7 +388,7 @@ router.post("/seed-mock-data", async (req: Request, res: Response) => {
         merchantId,
         alertType: "success",
         title: "Inventory Probe Completed",
-        description: `${insertedProducts} SKUs probed successfully`,
+        description: `${insertedProducts.toLocaleString()} SKUs probed successfully`,
         suggestion: null,
         isRead: true,
         createdAt: daysAgo(2),
@@ -416,14 +432,13 @@ router.post("/seed-mock-data", async (req: Request, res: Response) => {
 
     successResponse(res, {
       message: "Mock data seeded successfully",
-      merchantId,
       stats: {
         products: insertedProducts,
         inventorySkus: invBatch.length,
         syncJobs: syncJobs.length,
-        queries: allQueries.length,
-        orders: allOrders.length,
-        transactionEvents: allTransactions.length,
+        queries: totalQueries,
+        orders: totalOrders,
+        transactionEvents: totalTransactions,
         systemAlerts: 4,
         insights: 4,
       },
