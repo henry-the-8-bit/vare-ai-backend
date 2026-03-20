@@ -53,8 +53,7 @@ export async function assessFitment(merchantId: string): Promise<FitmentAssessme
   const products = await db
     .select({ sku: rawProductsTable.sku, rawData: rawProductsTable.rawData })
     .from(rawProductsTable)
-    .where(eq(rawProductsTable.merchantId, merchantId))
-    .limit(1000);
+    .where(eq(rawProductsTable.merchantId, merchantId));
 
   let structured = 0;
   let textFitment = 0;
@@ -125,17 +124,14 @@ export async function extractFitmentFromDescriptions(
   const enabled = fitmentCfg?.enabled ?? true;
   const configuredFields = Array.isArray(fitmentCfg?.fields) ? (fitmentCfg.fields as string[]) : [];
 
-  const query = db
+  const products = await db
     .select({ id: rawProductsTable.id, sku: rawProductsTable.sku, rawData: rawProductsTable.rawData })
     .from(rawProductsTable)
     .where(
       skus && skus.length > 0
         ? and(eq(rawProductsTable.merchantId, merchantId), inArray(rawProductsTable.sku, skus))
         : eq(rawProductsTable.merchantId, merchantId),
-    )
-    .limit(100);
-
-  const products = await query;
+    );
 
   if (!enabled) {
     return products.map((p) => ({ sku: p.sku, fitmentData: null }));
