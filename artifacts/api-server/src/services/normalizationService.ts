@@ -380,7 +380,9 @@ export async function discoverValueClusters(merchantId: string, attributeMapping
         (a) => a["attribute_code"] === mapping.sourceAttribute,
       );
       val = found?.["value"];
-    } else {
+    }
+
+    if (val === undefined || val === null || val === "") {
       val = data[mapping.sourceAttribute];
     }
 

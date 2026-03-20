@@ -92,15 +92,19 @@ router.get("/normalization/status", requireAuth, async (req: Request, res: Respo
 
 router.get("/normalization/attributes", requireAuth, async (req: Request, res: Response) => {
   const merchantId = req.merchantId!;
+  const page = Math.max(1, parseInt(String(req.query["page"] ?? "1"), 10) || 1);
+  const pageSize = Math.min(500, Math.max(1, parseInt(String(req.query["pageSize"] ?? "200"), 10) || 200));
+  const offset = (page - 1) * pageSize;
 
   const mappings = await db
     .select()
     .from(attributeMappingsTable)
     .where(eq(attributeMappingsTable.merchantId, merchantId))
     .orderBy(desc(attributeMappingsTable.createdAt))
-    .limit(200);
+    .limit(pageSize)
+    .offset(offset);
 
-  successResponse(res, { count: mappings.length, attributes: mappings });
+  successResponse(res, { page, pageSize, count: mappings.length, attributes: mappings });
 });
 
 router.post("/normalization/attributes/discover", requireAuth, async (req: Request, res: Response) => {
