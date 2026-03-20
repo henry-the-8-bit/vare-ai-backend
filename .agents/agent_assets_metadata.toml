@@ -1,0 +1,8 @@
+uploads = []
+generated = []
+
+[[outputs]]
+id = "nh0WQbloWW7Kt0JObNEFr"
+uri = "file://LOVABLE_INTEGRATION.md"
+type = "text"
+title = "Lovable Integration Guide — Vare AI Backend"
