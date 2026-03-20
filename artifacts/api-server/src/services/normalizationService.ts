@@ -267,17 +267,23 @@ export async function discoverAttributeMappings(merchantId: string): Promise<voi
     }
   }
 
+  const allSourceAttrs = Object.keys(attributeFreq);
+  const existingMappings = allSourceAttrs.length > 0
+    ? await db
+        .select({ sourceAttribute: attributeMappingsTable.sourceAttribute })
+        .from(attributeMappingsTable)
+        .where(and(
+          eq(attributeMappingsTable.merchantId, merchantId),
+          inArray(attributeMappingsTable.sourceAttribute, allSourceAttrs),
+        ))
+    : [];
+  const existingSet = new Set(existingMappings.map((m) => m.sourceAttribute));
+
   const ambiguousForLlm: Array<{ sourceAttr: string; sampleValues: string[] }> = [];
   const decisionsMap = new Map<string, { targetAttribute: string | null; confidence: number; mappingStatus: string }>();
 
   for (const [sourceAttr, _freq] of Object.entries(attributeFreq)) {
-    const existing = await db
-      .select({ id: attributeMappingsTable.id })
-      .from(attributeMappingsTable)
-      .where(and(eq(attributeMappingsTable.merchantId, merchantId), eq(attributeMappingsTable.sourceAttribute, sourceAttr)))
-      .limit(1);
-
-    if (existing.length > 0) continue;
+    if (existingSet.has(sourceAttr)) continue;
 
     const directTarget = AUTOMOTIVE_ATTRIBUTE_MAP[sourceAttr.toLowerCase()];
 
@@ -408,20 +414,23 @@ export async function discoverValueClusters(merchantId: string, attributeMapping
   const CLUSTER_THRESHOLD = 0.75;
   const needsLlmNormalization: string[] = [];
 
+  const allSourceValues = Object.keys(valueCounts);
+  const existingValueRows = allSourceValues.length > 0
+    ? await db
+        .select({ sourceValue: valueNormalizationsTable.sourceValue })
+        .from(valueNormalizationsTable)
+        .where(and(
+          eq(valueNormalizationsTable.merchantId, merchantId),
+          eq(valueNormalizationsTable.attributeMappingId, attributeMappingId),
+          inArray(valueNormalizationsTable.sourceValue, allSourceValues),
+        ))
+    : [];
+  const existingValueSet = new Set(existingValueRows.map((v) => v.sourceValue));
+
   const newValues: Array<{ sourceValue: string; freq: number }> = [];
 
   for (const [sourceValue, freq] of Object.entries(valueCounts)) {
-    const existing = await db
-      .select({ id: valueNormalizationsTable.id })
-      .from(valueNormalizationsTable)
-      .where(and(
-        eq(valueNormalizationsTable.merchantId, merchantId),
-        eq(valueNormalizationsTable.attributeMappingId, attributeMappingId),
-        eq(valueNormalizationsTable.sourceValue, sourceValue),
-      ))
-      .limit(1);
-
-    if (existing.length > 0) continue;
+    if (existingValueSet.has(sourceValue)) continue;
     newValues.push({ sourceValue, freq });
   }
 
