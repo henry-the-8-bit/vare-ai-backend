@@ -122,7 +122,7 @@ router.post("/normalization/attributes/discover", requireAuth, async (req: Reque
 });
 
 const updateAttributeSchema = z.object({
-  targetAttribute: z.string().max(255).nullable(),
+  targetAttribute: z.string().max(255).nullable().optional(),
   mappingStatus: z.enum(["auto", "manual", "pending", "rejected"]).optional(),
   dataType: z.string().max(50).optional(),
   normalizationUnit: z.string().max(50).optional(),
@@ -157,10 +157,10 @@ router.patch("/normalization/attributes/:attributeId", requireAuth, async (req: 
   const [updated] = await db
     .update(attributeMappingsTable)
     .set({
-      targetAttribute: parsed.data.targetAttribute ?? undefined,
-      mappingStatus: parsed.data.mappingStatus ?? undefined,
-      dataType: parsed.data.dataType ?? undefined,
-      normalizationUnit: parsed.data.normalizationUnit ?? undefined,
+      ...(parsed.data.targetAttribute !== undefined ? { targetAttribute: parsed.data.targetAttribute } : {}),
+      ...(parsed.data.mappingStatus !== undefined ? { mappingStatus: parsed.data.mappingStatus } : {}),
+      ...(parsed.data.dataType !== undefined ? { dataType: parsed.data.dataType } : {}),
+      ...(parsed.data.normalizationUnit !== undefined ? { normalizationUnit: parsed.data.normalizationUnit } : {}),
     })
     .where(and(eq(attributeMappingsTable.id, attributeId), eq(attributeMappingsTable.merchantId, merchantId)))
     .returning();

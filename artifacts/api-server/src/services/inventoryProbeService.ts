@@ -139,6 +139,43 @@ export async function probeSingleSku(merchantId: string, sku: string): Promise<I
   }
 }
 
+async function persistInventoryResult(
+  merchantId: string,
+  sku: string,
+  quantity: number | null,
+  isInStock: boolean | null,
+  sourceName: string,
+  latencyMs: number,
+  lowStockThreshold: number,
+): Promise<void> {
+  try {
+    await db
+      .insert(inventoryTable)
+      .values({
+        merchantId,
+        sku,
+        quantity,
+        isInStock,
+        sourceName,
+        lastProbed: new Date(),
+        probeLatencyMs: latencyMs,
+        lowStockThreshold,
+      })
+      .onConflictDoUpdate({
+        target: [inventoryTable.merchantId, inventoryTable.sku],
+        set: {
+          quantity,
+          isInStock,
+          sourceName,
+          lastProbed: new Date(),
+          probeLatencyMs: latencyMs,
+          updatedAt: new Date(),
+        },
+      });
+  } catch {
+  }
+}
+
 async function handleFallback(merchantId: string, sku: string, cfg: ProbeConfig, error: string, latencyMs = 0): Promise<InventoryResult> {
   if (cfg.fallbackBehavior === "last_known") {
     const [last] = await db
@@ -153,11 +190,13 @@ async function handleFallback(merchantId: string, sku: string, cfg: ProbeConfig,
   }
 
   if (cfg.fallbackBehavior === "assume_in_stock") {
-    return { sku, quantity: null, isInStock: true, source: "fallback_assume_in_stock", latencyMs, cached: false, lastProbed: null, error };
+    await persistInventoryResult(merchantId, sku, null, true, "fallback_assume_in_stock", latencyMs, cfg.lowStockThreshold);
+    return { sku, quantity: null, isInStock: true, source: "fallback_assume_in_stock", latencyMs, cached: false, lastProbed: new Date(), error };
   }
 
   if (cfg.fallbackBehavior === "assume_out_of_stock") {
-    return { sku, quantity: 0, isInStock: false, source: "fallback_assume_out_of_stock", latencyMs, cached: false, lastProbed: null, error };
+    await persistInventoryResult(merchantId, sku, 0, false, "fallback_assume_out_of_stock", latencyMs, cfg.lowStockThreshold);
+    return { sku, quantity: 0, isInStock: false, source: "fallback_assume_out_of_stock", latencyMs, cached: false, lastProbed: new Date(), error };
   }
 
   return { sku, quantity: null, isInStock: null, source: "fallback_unknown", latencyMs, cached: false, lastProbed: null, error };
