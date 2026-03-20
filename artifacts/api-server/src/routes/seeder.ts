@@ -16,7 +16,6 @@ import {
   magentoConnectionsTable,
 } from "@workspace/db/schema";
 import { eq, sql } from "drizzle-orm";
-import { requireAuth } from "../middlewares/auth.js";
 import { successResponse, errorResponse } from "../lib/response.js";
 import { generateApiKey } from "../lib/crypto.js";
 import { logger } from "../lib/logger.js";
@@ -68,49 +67,103 @@ function pickRandom<T>(arr: readonly T[]): T {
   return arr[Math.floor(Math.random() * arr.length)]!;
 }
 
+const DEMO_SLUG = "acme-auto";
 const PRODUCT_BATCH = 500;
 const TOTAL_PRODUCTS = 50000;
 const QUERIES_PER_DAY = 1000;
 const DAYS = 30;
 
-router.post("/seed-mock-data", requireAuth, async (req: Request, res: Response) => {
+router.post("/seed-mock-data", async (req: Request, res: Response) => {
   const force = req.body?.force === true;
 
   try {
-    const merchantId = req.merchantId!;
+    const existingRows = await db
+      .select({ id: merchantsTable.id, slug: merchantsTable.slug, apiKey: merchantsTable.apiKey })
+      .from(merchantsTable)
+      .where(sql`slug = ${DEMO_SLUG}`)
+      .limit(1);
 
-    const [productCountRow] = await db
-      .select({ cnt: sql<number>`count(*)` })
-      .from(normalizedProductsTable)
-      .where(eq(normalizedProductsTable.merchantId, merchantId));
+    let merchantId: string;
+    let apiKey: string;
 
-    const existingCount = Number(productCountRow?.cnt ?? 0);
+    if (existingRows.length > 0) {
+      merchantId = existingRows[0]!.id;
+      apiKey = existingRows[0]!.apiKey!;
 
-    if (existingCount >= TOTAL_PRODUCTS && !force) {
-      successResponse(res, {
-        message: "Mock data already seeded. Pass force=true to re-seed.",
-        stats: { existingProducts: existingCount },
-      });
-      return;
-    }
+      const [productCountRow] = await db
+        .select({ cnt: sql<number>`count(*)` })
+        .from(normalizedProductsTable)
+        .where(eq(normalizedProductsTable.merchantId, merchantId));
 
-    if (force) {
-      await Promise.all([
-        db.delete(normalizedProductsTable).where(eq(normalizedProductsTable.merchantId, merchantId)),
-        db.delete(agentQueriesTable).where(eq(agentQueriesTable.merchantId, merchantId)),
-        db.delete(agentOrdersTable).where(eq(agentOrdersTable.merchantId, merchantId)),
-        db.delete(agentCartsTable).where(eq(agentCartsTable.merchantId, merchantId)),
-        db.delete(transactionEventsTable).where(eq(transactionEventsTable.merchantId, merchantId)),
-        db.delete(syncJobsTable).where(eq(syncJobsTable.merchantId, merchantId)),
-        db.delete(inventoryTable).where(eq(inventoryTable.merchantId, merchantId)),
-        db.delete(systemAlertsTable).where(eq(systemAlertsTable.merchantId, merchantId)),
-        db.delete(insightsTable).where(eq(insightsTable.merchantId, merchantId)),
-        db.delete(attributeMappingsTable).where(eq(attributeMappingsTable.merchantId, merchantId)),
-        db.delete(magentoConnectionsTable).where(eq(magentoConnectionsTable.merchantId, merchantId)),
-      ]);
+      const existingCount = Number(productCountRow?.cnt ?? 0);
+
+      if (existingCount >= TOTAL_PRODUCTS && !force) {
+        successResponse(res, {
+          message: "Mock data already seeded. Pass force=true to re-seed.",
+          merchantId,
+          apiKey,
+          stats: { existingProducts: existingCount },
+        });
+        return;
+      }
+
+      if (force) {
+        await Promise.all([
+          db.delete(normalizedProductsTable).where(eq(normalizedProductsTable.merchantId, merchantId)),
+          db.delete(agentQueriesTable).where(eq(agentQueriesTable.merchantId, merchantId)),
+          db.delete(agentOrdersTable).where(eq(agentOrdersTable.merchantId, merchantId)),
+          db.delete(agentCartsTable).where(eq(agentCartsTable.merchantId, merchantId)),
+          db.delete(transactionEventsTable).where(eq(transactionEventsTable.merchantId, merchantId)),
+          db.delete(syncJobsTable).where(eq(syncJobsTable.merchantId, merchantId)),
+          db.delete(inventoryTable).where(eq(inventoryTable.merchantId, merchantId)),
+          db.delete(systemAlertsTable).where(eq(systemAlertsTable.merchantId, merchantId)),
+          db.delete(insightsTable).where(eq(insightsTable.merchantId, merchantId)),
+          db.delete(attributeMappingsTable).where(eq(attributeMappingsTable.merchantId, merchantId)),
+          db.delete(magentoConnectionsTable).where(eq(magentoConnectionsTable.merchantId, merchantId)),
+          db.delete(agentConfigsTable).where(eq(agentConfigsTable.merchantId, merchantId)),
+        ]);
+      }
+    } else {
+      apiKey = await generateApiKey();
+      const [merchant] = await db
+        .insert(merchantsTable)
+        .values({
+          slug: DEMO_SLUG,
+          companyName: "Acme Auto Parts",
+          contactFirstName: "Jane",
+          contactLastName: "Smith",
+          contactEmail: "jane@acmeauto.example.com",
+          contactPhone: "555-867-5309",
+          estimatedSkuCount: "50000",
+          primaryVertical: "automotive",
+          magentoVersion: "2.4.6",
+          hostingEnvironment: "adobe-commerce-cloud",
+          complexityScore: 72,
+          onboardingPhase: 10,
+          onboardingStatus: "complete",
+          apiKey,
+          sandboxMode: false,
+          isLive: true,
+        })
+        .returning({ id: merchantsTable.id });
+      merchantId = merchant!.id;
     }
 
     logger.info({ merchantId }, "Seeding mock data...");
+
+    await db
+      .insert(agentConfigsTable)
+      .values({
+        merchantId,
+        rateLimitPerMinute: 90,
+        requireCartConfirmation: false,
+        maxOrderValueCents: null,
+        defaultShippingMethod: "flatrate_flatrate",
+        defaultPaymentMethod: "vare_ai",
+        testOrderEnabled: true,
+        enabledCapabilities: ["search", "cart", "checkout"],
+      })
+      .onConflictDoNothing();
 
     await db
       .insert(magentoConnectionsTable)
@@ -127,17 +180,6 @@ router.post("/seed-mock-data", requireAuth, async (req: Request, res: Response) 
         syncConfig: { syncInventory: true, syncPrices: true, deltaEnabled: true },
       })
       .onConflictDoNothing();
-
-    await db.insert(agentConfigsTable).values({
-      merchantId,
-      rateLimitPerMinute: 90,
-      requireCartConfirmation: false,
-      maxOrderValueCents: null,
-      defaultShippingMethod: "flatrate_flatrate",
-      defaultPaymentMethod: "vare_ai",
-      testOrderEnabled: true,
-      enabledCapabilities: ["search", "cart", "checkout"],
-    }).onConflictDoNothing();
 
     let insertedProducts = 0;
     const skuList: string[] = [];
@@ -432,6 +474,8 @@ router.post("/seed-mock-data", requireAuth, async (req: Request, res: Response) 
 
     successResponse(res, {
       message: "Mock data seeded successfully",
+      merchantId,
+      apiKey,
       stats: {
         products: insertedProducts,
         inventorySkus: invBatch.length,
