@@ -36,8 +36,8 @@ function computeComplexityScore(merchant: {
 
   if (
     merchant.magentoVersion &&
-    (merchant.magentoVersion.includes("enterprise") ||
-      merchant.magentoVersion.includes("commerce"))
+    (merchant.magentoVersion.toLowerCase().includes("enterprise") ||
+      merchant.magentoVersion.toLowerCase().includes("commerce"))
   ) {
     score += 1;
   }
@@ -196,8 +196,8 @@ router.get("/merchant/:id/complexity", requireAuth, async (req: Request, res: Re
     label,
     factors: {
       hasEnterpriseEdition:
-        merchant.magentoVersion?.includes("enterprise") ||
-        merchant.magentoVersion?.includes("commerce"),
+        merchant.magentoVersion?.toLowerCase().includes("enterprise") ||
+        merchant.magentoVersion?.toLowerCase().includes("commerce"),
       hasErp: Boolean(merchant.erpSystem && merchant.erpSystem.toLowerCase() !== "none"),
       hasPim: Boolean(merchant.pimSystem && merchant.pimSystem.toLowerCase() !== "none"),
       largeSkuCount:

@@ -22,7 +22,12 @@ router.post("/agent-config/generate-key", requireAuth, async (req: Request, res:
     return;
   }
 
-  const mode = req.body?.mode === "live" ? "live" : "test";
+  const rawMode = req.body?.mode;
+  if (rawMode !== undefined && rawMode !== "live" && rawMode !== "test") {
+    errorResponse(res, "Invalid mode. Must be 'live' or 'test'.", "VALIDATION_ERROR", 400);
+    return;
+  }
+  const mode = rawMode === "live" ? "live" : "test";
   const newKey = generateApiKey(mode === "live" ? "vare_live_sk" : "vare_test_sk");
 
   const [updated] = await db
