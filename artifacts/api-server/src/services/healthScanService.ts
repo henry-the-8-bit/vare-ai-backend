@@ -155,7 +155,7 @@ export async function runHealthScan(merchantId: string): Promise<HealthScanResul
       issue: "No product images",
       severity: "error" as const,
       count: issueCounts.noImages,
-      pct: Math.round((issueCounts.missingDescription / total) * 100),
+      pct: Math.round((issueCounts.noImages / total) * 100),
       suggestion: "Add at least one product image to improve agent-readiness score.",
     },
     {

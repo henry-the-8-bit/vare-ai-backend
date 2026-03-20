@@ -203,7 +203,7 @@ export async function getProbeResults(merchantId: string, skus?: string[]): Prom
     return db
       .select()
       .from(inventoryTable)
-      .where(and(eq(inventoryTable.merchantId, merchantId)));
+      .where(and(eq(inventoryTable.merchantId, merchantId), inArray(inventoryTable.sku, skus)));
   }
   return db
     .select()

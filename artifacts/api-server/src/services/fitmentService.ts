@@ -115,12 +115,6 @@ export async function extractFitmentFromDescriptions(
   merchantId: string,
   skus?: string[],
 ): Promise<Array<{ sku: string; fitmentData: FitmentData | null }>> {
-  let query = db
-    .select({ id: rawProductsTable.id, sku: rawProductsTable.sku, rawData: rawProductsTable.rawData })
-    .from(rawProductsTable)
-    .where(eq(rawProductsTable.merchantId, merchantId))
-    .$dynamic();
-
   const products = await db
     .select({ id: rawProductsTable.id, sku: rawProductsTable.sku, rawData: rawProductsTable.rawData })
     .from(rawProductsTable)

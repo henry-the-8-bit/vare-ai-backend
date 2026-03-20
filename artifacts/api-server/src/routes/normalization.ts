@@ -1,6 +1,11 @@
 import { Router, type IRouter, type Request, type Response } from "express";
 import { db } from "@workspace/db";
-import { syncJobsTable, attributeMappingsTable, valueNormalizationsTable } from "@workspace/db/schema";
+import {
+  syncJobsTable,
+  attributeMappingsTable,
+  valueNormalizationsTable,
+  normalizedProductsTable,
+} from "@workspace/db/schema";
 import { eq, and, desc } from "drizzle-orm";
 import { z } from "zod/v4";
 import { requireAuth } from "../middlewares/auth.js";
@@ -19,15 +24,15 @@ function getParam(req: Request, key: string): string | undefined {
   return Array.isArray(val) ? val[0] : val;
 }
 
-router.get("/normalization/preview", requireAuth, async (req: Request, res: Response) => {
+router.post("/normalization/preview", requireAuth, async (req: Request, res: Response) => {
   const merchantId = req.merchantId!;
-  const limit = Math.min(50, Math.max(1, parseInt(String(req.query["limit"] ?? "10"))));
+  const limit = Math.min(50, Math.max(1, parseInt(String(req.body?.limit ?? req.query["limit"] ?? "10"))));
 
   const previews = await previewNormalization(merchantId, limit);
   successResponse(res, { count: previews.length, previews });
 });
 
-router.post("/normalization/run", requireAuth, async (req: Request, res: Response) => {
+router.post("/normalization/apply", requireAuth, async (req: Request, res: Response) => {
   const merchantId = req.merchantId!;
 
   const [job] = await db
@@ -43,7 +48,7 @@ router.post("/normalization/run", requireAuth, async (req: Request, res: Respons
     console.error("[normalization] batch normalization failed", err);
   });
 
-  successResponse(res, { jobId: job.id, status: "queued", message: "Normalization job started" }, 202);
+  successResponse(res, { jobId: job.id, status: "queued", message: "Normalization job queued" }, 202);
 });
 
 router.get("/normalization/status", requireAuth, async (req: Request, res: Response) => {
@@ -85,7 +90,7 @@ router.get("/normalization/status", requireAuth, async (req: Request, res: Respo
   });
 });
 
-router.get("/normalization/attribute-mappings", requireAuth, async (req: Request, res: Response) => {
+router.get("/normalization/attributes", requireAuth, async (req: Request, res: Response) => {
   const merchantId = req.merchantId!;
 
   const mappings = await db
@@ -95,10 +100,10 @@ router.get("/normalization/attribute-mappings", requireAuth, async (req: Request
     .orderBy(desc(attributeMappingsTable.createdAt))
     .limit(200);
 
-  successResponse(res, { count: mappings.length, mappings });
+  successResponse(res, { count: mappings.length, attributes: mappings });
 });
 
-router.post("/normalization/attribute-mappings/discover", requireAuth, async (req: Request, res: Response) => {
+router.post("/normalization/attributes/discover", requireAuth, async (req: Request, res: Response) => {
   const merchantId = req.merchantId!;
 
   await discoverAttributeMappings(merchantId);
@@ -109,26 +114,26 @@ router.post("/normalization/attribute-mappings/discover", requireAuth, async (re
     .where(eq(attributeMappingsTable.merchantId, merchantId))
     .orderBy(desc(attributeMappingsTable.createdAt));
 
-  successResponse(res, { discovered: mappings.length, mappings });
+  successResponse(res, { discovered: mappings.length, attributes: mappings });
 });
 
-const updateMappingSchema = z.object({
+const updateAttributeSchema = z.object({
   targetAttribute: z.string().max(255).nullable(),
   mappingStatus: z.enum(["auto", "manual", "pending", "rejected"]).optional(),
   dataType: z.string().max(50).optional(),
   normalizationUnit: z.string().max(50).optional(),
 });
 
-router.patch("/normalization/attribute-mappings/:mappingId", requireAuth, async (req: Request, res: Response) => {
+router.patch("/normalization/attributes/:attributeId", requireAuth, async (req: Request, res: Response) => {
   const merchantId = req.merchantId!;
-  const mappingId = getParam(req, "mappingId");
+  const attributeId = getParam(req, "attributeId");
 
-  if (!mappingId) {
-    errorResponse(res, "mappingId required", "VALIDATION_ERROR", 400);
+  if (!attributeId) {
+    errorResponse(res, "attributeId required", "VALIDATION_ERROR", 400);
     return;
   }
 
-  const parsed = updateMappingSchema.safeParse(req.body);
+  const parsed = updateAttributeSchema.safeParse(req.body);
   if (!parsed.success) {
     errorResponse(res, "Validation failed", "VALIDATION_ERROR", 400, parsed.error.flatten());
     return;
@@ -137,7 +142,7 @@ router.patch("/normalization/attribute-mappings/:mappingId", requireAuth, async 
   const [existing] = await db
     .select({ id: attributeMappingsTable.id })
     .from(attributeMappingsTable)
-    .where(and(eq(attributeMappingsTable.id, mappingId), eq(attributeMappingsTable.merchantId, merchantId)))
+    .where(and(eq(attributeMappingsTable.id, attributeId), eq(attributeMappingsTable.merchantId, merchantId)))
     .limit(1);
 
   if (!existing) {
@@ -153,25 +158,25 @@ router.patch("/normalization/attribute-mappings/:mappingId", requireAuth, async 
       dataType: parsed.data.dataType ?? undefined,
       normalizationUnit: parsed.data.normalizationUnit ?? undefined,
     })
-    .where(and(eq(attributeMappingsTable.id, mappingId), eq(attributeMappingsTable.merchantId, merchantId)))
+    .where(and(eq(attributeMappingsTable.id, attributeId), eq(attributeMappingsTable.merchantId, merchantId)))
     .returning();
 
   successResponse(res, updated);
 });
 
-router.get("/normalization/value-clusters/:mappingId", requireAuth, async (req: Request, res: Response) => {
+router.get("/normalization/values/:attributeId", requireAuth, async (req: Request, res: Response) => {
   const merchantId = req.merchantId!;
-  const mappingId = getParam(req, "mappingId");
+  const attributeId = getParam(req, "attributeId");
 
-  if (!mappingId) {
-    errorResponse(res, "mappingId required", "VALIDATION_ERROR", 400);
+  if (!attributeId) {
+    errorResponse(res, "attributeId required", "VALIDATION_ERROR", 400);
     return;
   }
 
   const [mapping] = await db
     .select({ id: attributeMappingsTable.id })
     .from(attributeMappingsTable)
-    .where(and(eq(attributeMappingsTable.id, mappingId), eq(attributeMappingsTable.merchantId, merchantId)))
+    .where(and(eq(attributeMappingsTable.id, attributeId), eq(attributeMappingsTable.merchantId, merchantId)))
     .limit(1);
 
   if (!mapping) {
@@ -179,29 +184,29 @@ router.get("/normalization/value-clusters/:mappingId", requireAuth, async (req: 
     return;
   }
 
-  const clusters = await db
+  const values = await db
     .select()
     .from(valueNormalizationsTable)
-    .where(and(eq(valueNormalizationsTable.merchantId, merchantId), eq(valueNormalizationsTable.attributeMappingId, mappingId)))
+    .where(and(eq(valueNormalizationsTable.merchantId, merchantId), eq(valueNormalizationsTable.attributeMappingId, attributeId)))
     .orderBy(desc(valueNormalizationsTable.productCount))
     .limit(200);
 
-  successResponse(res, { mappingId, count: clusters.length, clusters });
+  successResponse(res, { attributeId, count: values.length, values });
 });
 
-router.post("/normalization/value-clusters/:mappingId/discover", requireAuth, async (req: Request, res: Response) => {
+router.post("/normalization/values/:attributeId/discover", requireAuth, async (req: Request, res: Response) => {
   const merchantId = req.merchantId!;
-  const mappingId = getParam(req, "mappingId");
+  const attributeId = getParam(req, "attributeId");
 
-  if (!mappingId) {
-    errorResponse(res, "mappingId required", "VALIDATION_ERROR", 400);
+  if (!attributeId) {
+    errorResponse(res, "attributeId required", "VALIDATION_ERROR", 400);
     return;
   }
 
   const [mapping] = await db
     .select({ id: attributeMappingsTable.id })
     .from(attributeMappingsTable)
-    .where(and(eq(attributeMappingsTable.id, mappingId), eq(attributeMappingsTable.merchantId, merchantId)))
+    .where(and(eq(attributeMappingsTable.id, attributeId), eq(attributeMappingsTable.merchantId, merchantId)))
     .limit(1);
 
   if (!mapping) {
@@ -209,34 +214,34 @@ router.post("/normalization/value-clusters/:mappingId/discover", requireAuth, as
     return;
   }
 
-  await discoverValueClusters(merchantId, mappingId);
+  await discoverValueClusters(merchantId, attributeId);
 
-  const clusters = await db
+  const values = await db
     .select()
     .from(valueNormalizationsTable)
-    .where(and(eq(valueNormalizationsTable.merchantId, merchantId), eq(valueNormalizationsTable.attributeMappingId, mappingId)))
+    .where(and(eq(valueNormalizationsTable.merchantId, merchantId), eq(valueNormalizationsTable.attributeMappingId, attributeId)))
     .orderBy(desc(valueNormalizationsTable.productCount));
 
-  successResponse(res, { mappingId, discovered: clusters.length, clusters });
+  successResponse(res, { attributeId, discovered: values.length, values });
 });
 
-const updateClusterSchema = z.object({
+const updateValueSchema = z.object({
   normalizedValue: z.string().max(500),
   clusterName: z.string().max(255).optional(),
   status: z.enum(["suggested", "approved", "rejected"]),
 });
 
-router.patch("/normalization/value-clusters/:mappingId/:clusterId", requireAuth, async (req: Request, res: Response) => {
+router.patch("/normalization/values/:attributeId/:valueId", requireAuth, async (req: Request, res: Response) => {
   const merchantId = req.merchantId!;
-  const mappingId = getParam(req, "mappingId");
-  const clusterId = getParam(req, "clusterId");
+  const attributeId = getParam(req, "attributeId");
+  const valueId = getParam(req, "valueId");
 
-  if (!mappingId || !clusterId) {
-    errorResponse(res, "mappingId and clusterId required", "VALIDATION_ERROR", 400);
+  if (!attributeId || !valueId) {
+    errorResponse(res, "attributeId and valueId required", "VALIDATION_ERROR", 400);
     return;
   }
 
-  const parsed = updateClusterSchema.safeParse(req.body);
+  const parsed = updateValueSchema.safeParse(req.body);
   if (!parsed.success) {
     errorResponse(res, "Validation failed", "VALIDATION_ERROR", 400, parsed.error.flatten());
     return;
@@ -246,14 +251,14 @@ router.patch("/normalization/value-clusters/:mappingId/:clusterId", requireAuth,
     .select({ id: valueNormalizationsTable.id })
     .from(valueNormalizationsTable)
     .where(and(
-      eq(valueNormalizationsTable.id, clusterId),
+      eq(valueNormalizationsTable.id, valueId),
       eq(valueNormalizationsTable.merchantId, merchantId),
-      eq(valueNormalizationsTable.attributeMappingId, mappingId),
+      eq(valueNormalizationsTable.attributeMappingId, attributeId),
     ))
     .limit(1);
 
   if (!existing) {
-    errorResponse(res, "Value cluster not found", "NOT_FOUND", 404);
+    errorResponse(res, "Value normalization not found", "NOT_FOUND", 404);
     return;
   }
 
@@ -264,7 +269,7 @@ router.patch("/normalization/value-clusters/:mappingId/:clusterId", requireAuth,
       clusterName: parsed.data.clusterName ?? undefined,
       status: parsed.data.status,
     })
-    .where(and(eq(valueNormalizationsTable.id, clusterId), eq(valueNormalizationsTable.merchantId, merchantId)))
+    .where(and(eq(valueNormalizationsTable.id, valueId), eq(valueNormalizationsTable.merchantId, merchantId)))
     .returning();
 
   successResponse(res, updated);

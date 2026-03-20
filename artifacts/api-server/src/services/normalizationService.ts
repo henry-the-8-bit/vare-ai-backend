@@ -179,6 +179,45 @@ Respond ONLY with valid JSON, no markdown, no explanation.`;
   }
 }
 
+const UNIVERSAL_ATTRIBUTES = [
+  "product_title", "description", "short_description", "brand", "manufacturer",
+  "mpn", "upc", "price", "color", "finish", "weight", "weight_unit",
+  "category_path", "image_urls", "fitment",
+];
+
+async function llmDisambiguateAttributes(
+  ambiguousAttrs: Array<{ sourceAttr: string; sampleValues: string[] }>,
+): Promise<Record<string, { target: string | null; confidence: number }>> {
+  if (ambiguousAttrs.length === 0) return {};
+
+  const prompt = `You are an automotive parts catalog data expert. Map these ambiguous product attribute names to standard catalog fields.
+
+Standard fields: ${UNIVERSAL_ATTRIBUTES.join(", ")}
+
+For each attribute below, identify the best matching standard field (or null if unknown):
+${ambiguousAttrs.map((a, i) => `${i + 1}. "${a.sourceAttr}" (sample values: ${a.sampleValues.slice(0, 3).join(", ") || "none"})`).join("\n")}
+
+Respond with a JSON object mapping attribute names to { "target": string|null, "confidence": 0.0-1.0 }.
+Only return valid JSON, no markdown.`;
+
+  try {
+    const message = await anthropic.messages.create({
+      model: "claude-haiku-4-5",
+      max_tokens: 8192,
+      messages: [{ role: "user", content: prompt }],
+    });
+
+    const block = message.content[0];
+    if (block.type !== "text") return {};
+
+    const text = block.text.trim().replace(/^```json\n?/, "").replace(/\n?```$/, "");
+    return JSON.parse(text) as Record<string, { target: string | null; confidence: number }>;
+  } catch (err) {
+    logger.warn({ err }, "LLM attribute disambiguation failed");
+    return {};
+  }
+}
+
 export async function discoverAttributeMappings(merchantId: string): Promise<void> {
   const products = await db
     .select({ rawData: rawProductsTable.rawData })
@@ -187,6 +226,7 @@ export async function discoverAttributeMappings(merchantId: string): Promise<voi
     .limit(200);
 
   const attributeFreq: Record<string, number> = {};
+  const attributeSamples: Record<string, string[]> = {};
 
   for (const row of products) {
     const data = (row.rawData ?? {}) as Record<string, unknown>;
@@ -197,19 +237,27 @@ export async function discoverAttributeMappings(merchantId: string): Promise<voi
         if (a["attribute_code"]) {
           const code = String(a["attribute_code"]);
           attributeFreq[code] = (attributeFreq[code] ?? 0) + 1;
+          if (a["value"] && (!attributeSamples[code] || attributeSamples[code].length < 5)) {
+            attributeSamples[code] = [...(attributeSamples[code] ?? []), String(a["value"])];
+          }
         }
       }
     }
     for (const key of Object.keys(data)) {
       if (!["id", "sku", "type_id", "status", "visibility", "custom_attributes", "media_gallery_entries", "extension_attributes"].includes(key)) {
         attributeFreq[key] = (attributeFreq[key] ?? 0) + 1;
+        const val = data[key];
+        if (val && typeof val === "string" && (!attributeSamples[key] || attributeSamples[key].length < 5)) {
+          attributeSamples[key] = [...(attributeSamples[key] ?? []), val];
+        }
       }
     }
   }
 
-  const universalAttributes = ["product_title", "description", "short_description", "brand", "manufacturer", "mpn", "upc", "price", "color", "finish", "weight", "weight_unit", "category_path", "image_urls"];
+  const ambiguousForLlm: Array<{ sourceAttr: string; sampleValues: string[] }> = [];
+  const decisionsMap = new Map<string, { targetAttribute: string | null; confidence: number; mappingStatus: string }>();
 
-  for (const [sourceAttr, freq] of Object.entries(attributeFreq)) {
+  for (const [sourceAttr, _freq] of Object.entries(attributeFreq)) {
     const existing = await db
       .select({ id: attributeMappingsTable.id })
       .from(attributeMappingsTable)
@@ -220,32 +268,88 @@ export async function discoverAttributeMappings(merchantId: string): Promise<voi
 
     const directTarget = AUTOMOTIVE_ATTRIBUTE_MAP[sourceAttr.toLowerCase()];
 
-    let targetAttribute = directTarget ?? null;
-    let confidence = directTarget ? 0.95 : 0;
+    if (directTarget) {
+      decisionsMap.set(sourceAttr, { targetAttribute: directTarget, confidence: 0.95, mappingStatus: "auto" });
+      continue;
+    }
 
-    if (!directTarget) {
-      let bestMatch = "";
-      let bestScore = 0;
-      for (const ua of universalAttributes) {
-        const score = stringSimilarity(sourceAttr, ua);
-        if (score > bestScore) {
-          bestScore = score;
-          bestMatch = ua;
-        }
-      }
-      if (bestScore > 0.6) {
-        targetAttribute = bestMatch;
-        confidence = bestScore * 0.8;
+    let bestMatch = "";
+    let bestScore = 0;
+    for (const ua of UNIVERSAL_ATTRIBUTES) {
+      const score = stringSimilarity(sourceAttr, ua);
+      if (score > bestScore) {
+        bestScore = score;
+        bestMatch = ua;
       }
     }
 
+    if (bestScore >= 0.75) {
+      decisionsMap.set(sourceAttr, { targetAttribute: bestMatch, confidence: bestScore * 0.9, mappingStatus: "auto" });
+    } else if (bestScore >= 0.5) {
+      ambiguousForLlm.push({ sourceAttr, sampleValues: attributeSamples[sourceAttr] ?? [] });
+    } else {
+      decisionsMap.set(sourceAttr, { targetAttribute: null, confidence: 0, mappingStatus: "pending" });
+    }
+  }
+
+  if (ambiguousForLlm.length > 0) {
+    const llmResults = await llmDisambiguateAttributes(ambiguousForLlm);
+    for (const { sourceAttr } of ambiguousForLlm) {
+      const llmResult = llmResults[sourceAttr];
+      if (llmResult) {
+        const conf = llmResult.confidence ?? 0;
+        decisionsMap.set(sourceAttr, {
+          targetAttribute: llmResult.target,
+          confidence: conf,
+          mappingStatus: conf >= 0.7 ? "auto" : "pending",
+        });
+      } else {
+        decisionsMap.set(sourceAttr, { targetAttribute: null, confidence: 0, mappingStatus: "pending" });
+      }
+    }
+  }
+
+  for (const [sourceAttr, decision] of decisionsMap.entries()) {
     await db.insert(attributeMappingsTable).values({
       merchantId,
       sourceAttribute: sourceAttr,
-      targetAttribute: targetAttribute,
-      mappingStatus: directTarget ? "auto" : (confidence > 0.7 ? "auto" : "pending"),
-      confidence: confidence || null,
+      targetAttribute: decision.targetAttribute,
+      mappingStatus: decision.mappingStatus,
+      confidence: decision.confidence || null,
     });
+  }
+}
+
+async function llmNormalizeValues(
+  targetAttribute: string | null,
+  valuesToNormalize: string[],
+): Promise<Record<string, string>> {
+  if (valuesToNormalize.length === 0) return {};
+
+  const prompt = `You are an automotive parts catalog normalizer. Normalize these raw product attribute values for the field "${targetAttribute ?? "unknown"}".
+
+Values to normalize:
+${valuesToNormalize.map((v, i) => `${i + 1}. "${v}"`).join("\n")}
+
+Return a JSON object mapping each raw value to its normalized form. Use proper casing and standard terminology.
+For example: { "blk": "Black", "XL size": "XL", "made in usa": "USA" }
+Only return valid JSON, no markdown.`;
+
+  try {
+    const message = await anthropic.messages.create({
+      model: "claude-haiku-4-5",
+      max_tokens: 8192,
+      messages: [{ role: "user", content: prompt }],
+    });
+
+    const block = message.content[0];
+    if (block.type !== "text") return {};
+
+    const text = block.text.trim().replace(/^```json\n?/, "").replace(/\n?```$/, "");
+    return JSON.parse(text) as Record<string, string>;
+  } catch (err) {
+    logger.warn({ err }, "LLM value normalization failed");
+    return {};
   }
 }
 
@@ -287,6 +391,9 @@ export async function discoverValueClusters(merchantId: string, attributeMapping
   }
 
   const CLUSTER_THRESHOLD = 0.75;
+  const needsLlmNormalization: string[] = [];
+
+  const newValues: Array<{ sourceValue: string; freq: number }> = [];
 
   for (const [sourceValue, freq] of Object.entries(valueCounts)) {
     const existing = await db
@@ -300,36 +407,56 @@ export async function discoverValueClusters(merchantId: string, attributeMapping
       .limit(1);
 
     if (existing.length > 0) continue;
+    newValues.push({ sourceValue, freq });
+  }
 
-    const existingNorms = await db
-      .select({ normalizedValue: valueNormalizationsTable.normalizedValue })
-      .from(valueNormalizationsTable)
-      .where(and(eq(valueNormalizationsTable.merchantId, merchantId), eq(valueNormalizationsTable.attributeMappingId, attributeMappingId)));
+  const existingNorms = await db
+    .select({ normalizedValue: valueNormalizationsTable.normalizedValue })
+    .from(valueNormalizationsTable)
+    .where(and(eq(valueNormalizationsTable.merchantId, merchantId), eq(valueNormalizationsTable.attributeMappingId, attributeMappingId)));
 
-    let normalizedValue = sourceValue;
-    let clusterName = sourceValue;
+  const resolved = new Map<string, string>();
 
+  for (const { sourceValue } of newValues) {
     const colorResult = mapping.targetAttribute === "color" ? normalizeColor(sourceValue) : null;
     if (colorResult) {
-      normalizedValue = colorResult;
-      clusterName = colorResult;
-    } else {
-      for (const existing2 of existingNorms) {
-        const sim = stringSimilarity(sourceValue, existing2.normalizedValue);
-        if (sim >= CLUSTER_THRESHOLD) {
-          normalizedValue = existing2.normalizedValue;
-          clusterName = existing2.normalizedValue;
-          break;
-        }
+      resolved.set(sourceValue, colorResult);
+      continue;
+    }
+
+    let matched = false;
+    for (const norm of existingNorms) {
+      const sim = stringSimilarity(sourceValue, norm.normalizedValue);
+      if (sim >= CLUSTER_THRESHOLD) {
+        resolved.set(sourceValue, norm.normalizedValue);
+        matched = true;
+        break;
       }
     }
 
+    if (!matched) {
+      const alreadyResolved = resolved.get(sourceValue);
+      if (!alreadyResolved) {
+        needsLlmNormalization.push(sourceValue);
+      }
+    }
+  }
+
+  if (needsLlmNormalization.length > 0) {
+    const llmResults = await llmNormalizeValues(mapping.targetAttribute, needsLlmNormalization);
+    for (const [raw, normalized] of Object.entries(llmResults)) {
+      resolved.set(raw, normalized);
+    }
+  }
+
+  for (const { sourceValue, freq } of newValues) {
+    const normalizedValue = resolved.get(sourceValue) ?? sourceValue;
     await db.insert(valueNormalizationsTable).values({
       merchantId,
       attributeMappingId,
       sourceValue,
       normalizedValue,
-      clusterName,
+      clusterName: normalizedValue,
       status: "suggested",
       productCount: freq,
     });
@@ -353,7 +480,6 @@ export async function runBatchNormalization(jobId: string, merchantId: string): 
   const errorLog: Array<{ sku: string; error: string; timestamp: string }> = [];
 
   const BATCH_SIZE = 20;
-  const LLM_BATCH_SIZE = 5;
 
   const rulesResults: Array<{ raw: RawProductRow; fields: NormalizedFields }> = [];
 
