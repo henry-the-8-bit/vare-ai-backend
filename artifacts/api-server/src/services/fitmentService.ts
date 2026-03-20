@@ -170,6 +170,36 @@ export async function extractFitmentFromDescriptions(
         return { sku: row.sku, fitmentData };
       }
 
+      if (source === "mpn_cross") {
+        const mpn = String(merged["manufacturer_part_number"] ?? merged["mpn"] ?? merged["part_number"] ?? "");
+        if (!mpn) return { sku: row.sku, fitmentData: null };
+
+        const prompt = `Given this automotive part number (MPN), infer possible vehicle fitment data. Return JSON only.
+
+MPN: "${mpn}"
+SKU: "${row.sku}"
+
+Return a JSON object with: make, model, year (or year range as string), trim, engine, submodel, notes.
+If the MPN provides no fitment information, return null.
+Only return valid JSON, no markdown.`;
+
+        try {
+          const message = await anthropic.messages.create({
+            model: "claude-haiku-4-5",
+            max_tokens: 8192,
+            messages: [{ role: "user", content: prompt }],
+          });
+          const block = message.content[0];
+          if (block.type !== "text") return { sku: row.sku, fitmentData: null };
+          const text = block.text.trim().replace(/^```json\n?/, "").replace(/\n?```$/, "");
+          if (text === "null") return { sku: row.sku, fitmentData: null };
+          const parsed = JSON.parse(text) as FitmentData;
+          return { sku: row.sku, fitmentData: { ...parsed, source: "mpn_cross" as const } };
+        } catch {
+          return { sku: row.sku, fitmentData: null };
+        }
+      }
+
       const desc = String(merged["description"] ?? merged["short_description"] ?? merged["name"] ?? "");
       if (!desc || desc.length < 10) return { sku: row.sku, fitmentData: null };
 

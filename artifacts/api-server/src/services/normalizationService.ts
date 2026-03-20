@@ -597,7 +597,6 @@ export async function runBatchNormalization(jobId: string, merchantId: string): 
           }
         }
 
-        merged = merged;
         const score = computeAgentReadinessScore(merged);
 
         const status = score >= 80 ? "complete" : score >= 40 ? "partial" : "needs_review";
