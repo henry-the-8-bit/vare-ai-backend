@@ -12,6 +12,10 @@ tags:
     description: Health operations
   - name: onboarding
     description: Merchant onboarding wizard endpoints
+  - name: connect
+    description: Magento connection management
+  - name: sync
+    description: Catalog sync pipeline
   - name: test
     description: Development and testing utilities
 
@@ -464,6 +468,590 @@ paths:
                     format: date-time
         "401":
           description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /onboarding/connect:
+    post:
+      operationId: saveConnection
+      tags: [connect]
+      summary: Save Magento credentials (Phase 2)
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                storeUrl:
+                  type: string
+                  format: uri
+                consumerKey:
+                  type: string
+                consumerSecret:
+                  type: string
+                accessToken:
+                  type: string
+                accessTokenSecret:
+                  type: string
+                apiUser:
+                  type: string
+                apiKeyM1:
+                  type: string
+              required:
+                - storeUrl
+      responses:
+        "201":
+          description: Connection saved
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: object
+                  generated_at:
+                    type: string
+                    format: date-time
+        "400":
+          description: Validation error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /onboarding/connect/test:
+    post:
+      operationId: testConnection
+      tags: [connect]
+      summary: Test Magento API connection
+      security:
+        - BearerAuth: []
+      responses:
+        "200":
+          description: Connection test result
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: object
+                    properties:
+                      success:
+                        type: boolean
+                      storeName:
+                        type: string
+                        nullable: true
+                      version:
+                        type: string
+                        nullable: true
+                      currency:
+                        type: string
+                        nullable: true
+                      locale:
+                        type: string
+                        nullable: true
+                      storeViews:
+                        type: array
+                        items:
+                          type: object
+                        nullable: true
+                      latencyMs:
+                        type: integer
+                        nullable: true
+                      error:
+                        type: string
+                        nullable: true
+                      errorCode:
+                        type: string
+                        nullable: true
+                    required:
+                      - success
+                  generated_at:
+                    type: string
+                    format: date-time
+        "400":
+          description: No connection configured
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /onboarding/connect/health:
+    get:
+      operationId: connectionHealth
+      tags: [connect]
+      summary: Deep health check of Magento API
+      security:
+        - BearerAuth: []
+      responses:
+        "200":
+          description: Health check results
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: object
+                    properties:
+                      success:
+                        type: boolean
+                      apiLatencyMs:
+                        type: integer
+                        nullable: true
+                      catalogEndpoint:
+                        type: boolean
+                        nullable: true
+                      inventoryEndpoint:
+                        type: boolean
+                        nullable: true
+                      apiHealthPct:
+                        type: number
+                        nullable: true
+                      error:
+                        type: string
+                        nullable: true
+                    required:
+                      - success
+                  generated_at:
+                    type: string
+                    format: date-time
+        "400":
+          description: No connection configured
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /onboarding/connect/store-views:
+    get:
+      operationId: listStoreViews
+      tags: [connect]
+      summary: List detected store views
+      security:
+        - BearerAuth: []
+      responses:
+        "200":
+          description: List of store views
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items:
+                      type: object
+                  generated_at:
+                    type: string
+                    format: date-time
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+    patch:
+      operationId: updateStoreViewSelections
+      tags: [connect]
+      summary: Update store view selections
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                selected:
+                  type: array
+                  items:
+                    type: string
+                    format: uuid
+              required:
+                - selected
+      responses:
+        "200":
+          description: Updated store views
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items:
+                      type: object
+                  generated_at:
+                    type: string
+                    format: date-time
+        "400":
+          description: Validation error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /onboarding/sync/configure:
+    post:
+      operationId: configureSyncFilters
+      tags: [sync]
+      summary: Configure catalog sync filters
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                productTypes:
+                  type: array
+                  items:
+                    type: string
+                  default: [simple, configurable, grouped, bundle]
+                status:
+                  type: array
+                  items:
+                    type: string
+                  default: ["1"]
+                visibility:
+                  type: array
+                  items:
+                    type: string
+                  default: ["1", "2", "3", "4"]
+                categoryIds:
+                  type: array
+                  items:
+                    type: integer
+                attributes:
+                  type: array
+                  items:
+                    type: string
+      responses:
+        "200":
+          description: Sync configuration saved
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: object
+                  generated_at:
+                    type: string
+                    format: date-time
+        "400":
+          description: Validation error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /onboarding/sync/start:
+    post:
+      operationId: startSync
+      tags: [sync]
+      summary: Start a catalog sync job
+      security:
+        - BearerAuth: []
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                type:
+                  type: string
+                  enum: [full, delta]
+                  default: full
+      responses:
+        "202":
+          description: Sync job queued
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: object
+                    properties:
+                      id:
+                        type: string
+                        format: uuid
+                      status:
+                        type: string
+                      jobType:
+                        type: string
+                    required:
+                      - id
+                      - status
+                      - jobType
+                  generated_at:
+                    type: string
+                    format: date-time
+        "400":
+          description: No connection configured
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /onboarding/sync/status:
+    get:
+      operationId: getSyncStatus
+      tags: [sync]
+      summary: Get sync job progress
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: jobId
+          in: query
+          required: false
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: Sync job status
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: object
+                    properties:
+                      jobId:
+                        type: string
+                      status:
+                        type: string
+                      totalRecords:
+                        type: integer
+                        nullable: true
+                      processedRecords:
+                        type: integer
+                        nullable: true
+                      errorCount:
+                        type: integer
+                        nullable: true
+                    required:
+                      - jobId
+                      - status
+                  generated_at:
+                    type: string
+                    format: date-time
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "404":
+          description: No sync job found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /onboarding/sync/pause:
+    post:
+      operationId: pauseSync
+      tags: [sync]
+      summary: Pause a running sync job
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                jobId:
+                  type: string
+                  format: uuid
+              required:
+                - jobId
+      responses:
+        "200":
+          description: Pause signal sent
+          content:
+            application/json:
+              schema:
+                type: object
+        "400":
+          description: Validation error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "404":
+          description: Job not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /onboarding/sync/cancel:
+    post:
+      operationId: cancelSync
+      tags: [sync]
+      summary: Cancel a sync job
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                jobId:
+                  type: string
+                  format: uuid
+              required:
+                - jobId
+      responses:
+        "200":
+          description: Cancellation requested
+          content:
+            application/json:
+              schema:
+                type: object
+        "400":
+          description: Validation error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "404":
+          description: Job not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /onboarding/sync/summary:
+    get:
+      operationId: getSyncSummary
+      tags: [sync]
+      summary: Get sync history summary
+      security:
+        - BearerAuth: []
+      responses:
+        "200":
+          description: Sync summary
+          content:
+            application/json:
+              schema:
+                type: object
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /onboarding/sync/errors:
+    get:
+      operationId: getSyncErrors
+      tags: [sync]
+      summary: Get per-product error log for a sync job
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: jobId
+          in: query
+          required: false
+          schema:
+            type: string
+            format: uuid
+        - name: page
+          in: query
+          required: false
+          schema:
+            type: integer
+            default: 1
+        - name: limit
+          in: query
+          required: false
+          schema:
+            type: integer
+            default: 50
+            maximum: 100
+      responses:
+        "200":
+          description: Error log
+          content:
+            application/json:
+              schema:
+                type: object
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "404":
+          description: Job not found
           content:
             application/json:
               schema:

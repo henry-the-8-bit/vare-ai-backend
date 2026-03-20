@@ -185,6 +185,154 @@ export type GenerateApiKey200 = {
   generated_at?: string;
 };
 
+export type SaveConnectionBody = {
+  storeUrl: string;
+  consumerKey?: string;
+  consumerSecret?: string;
+  accessToken?: string;
+  accessTokenSecret?: string;
+  apiUser?: string;
+  apiKeyM1?: string;
+};
+
+export type SaveConnection201Data = { [key: string]: unknown };
+
+export type SaveConnection201 = {
+  data?: SaveConnection201Data;
+  generated_at?: string;
+};
+
+export type TestConnection200DataStoreViewsItem = { [key: string]: unknown };
+
+export type TestConnection200Data = {
+  success: boolean;
+  storeName?: string | null;
+  version?: string | null;
+  currency?: string | null;
+  locale?: string | null;
+  storeViews?: TestConnection200DataStoreViewsItem[] | null;
+  latencyMs?: number | null;
+  error?: string | null;
+  errorCode?: string | null;
+};
+
+export type TestConnection200 = {
+  data?: TestConnection200Data;
+  generated_at?: string;
+};
+
+export type ConnectionHealth200Data = {
+  success: boolean;
+  apiLatencyMs?: number | null;
+  catalogEndpoint?: boolean | null;
+  inventoryEndpoint?: boolean | null;
+  apiHealthPct?: number | null;
+  error?: string | null;
+};
+
+export type ConnectionHealth200 = {
+  data?: ConnectionHealth200Data;
+  generated_at?: string;
+};
+
+export type ListStoreViews200DataItem = { [key: string]: unknown };
+
+export type ListStoreViews200 = {
+  data?: ListStoreViews200DataItem[];
+  generated_at?: string;
+};
+
+export type UpdateStoreViewSelectionsBody = {
+  selected: string[];
+};
+
+export type UpdateStoreViewSelections200DataItem = { [key: string]: unknown };
+
+export type UpdateStoreViewSelections200 = {
+  data?: UpdateStoreViewSelections200DataItem[];
+  generated_at?: string;
+};
+
+export type ConfigureSyncFiltersBody = {
+  productTypes?: string[];
+  status?: string[];
+  visibility?: string[];
+  categoryIds?: number[];
+  attributes?: string[];
+};
+
+export type ConfigureSyncFilters200Data = { [key: string]: unknown };
+
+export type ConfigureSyncFilters200 = {
+  data?: ConfigureSyncFilters200Data;
+  generated_at?: string;
+};
+
+export type StartSyncBodyType =
+  (typeof StartSyncBodyType)[keyof typeof StartSyncBodyType];
+
+export const StartSyncBodyType = {
+  full: "full",
+  delta: "delta",
+} as const;
+
+export type StartSyncBody = {
+  type?: StartSyncBodyType;
+};
+
+export type StartSync202Data = {
+  id: string;
+  status: string;
+  jobType: string;
+};
+
+export type StartSync202 = {
+  data?: StartSync202Data;
+  generated_at?: string;
+};
+
+export type GetSyncStatusParams = {
+  jobId?: string;
+};
+
+export type GetSyncStatus200Data = {
+  jobId: string;
+  status: string;
+  totalRecords?: number | null;
+  processedRecords?: number | null;
+  errorCount?: number | null;
+};
+
+export type GetSyncStatus200 = {
+  data?: GetSyncStatus200Data;
+  generated_at?: string;
+};
+
+export type PauseSyncBody = {
+  jobId: string;
+};
+
+export type PauseSync200 = { [key: string]: unknown };
+
+export type CancelSyncBody = {
+  jobId: string;
+};
+
+export type CancelSync200 = { [key: string]: unknown };
+
+export type GetSyncSummary200 = { [key: string]: unknown };
+
+export type GetSyncErrorsParams = {
+  jobId?: string;
+  page?: number;
+  /**
+   * @maximum 100
+   */
+  limit?: number;
+};
+
+export type GetSyncErrors200 = { [key: string]: unknown };
+
 export type SystemHealthCheck200 = {
   data?: SystemHealthResponse;
   generated_at?: string;

@@ -31,12 +31,18 @@ workspace/
 │           │   └── crypto.ts  # AES-256-GCM encrypt/decrypt, generateApiKey (HMAC)
 │           ├── middlewares/
 │           │   └── auth.ts    # requireAuth — validates Bearer token, attaches merchantId
+│           ├── services/
+│           │   ├── magentoConnector.ts  # MagentoConnector — HTTP client wrapping Magento REST API
+│           │   │                        # testConnection, fetchProducts (paginated), healthCheck
+│           │   └── catalogSync.ts       # CatalogSyncService — background batch sync, pause/cancel
 │           └── routes/
 │               ├── index.ts        # Mounts all sub-routers at /api
 │               ├── health.ts       # GET /api/healthz
 │               ├── onboarding.ts   # POST/GET/PATCH /api/onboarding/merchant[/:id]
 │               │                   # GET /api/onboarding/merchant/:id/complexity
 │               ├── agentConfig.ts  # POST /api/onboarding/agent-config/generate-key
+│               ├── connect.ts      # POST/GET /api/onboarding/connect[/test|/health|/store-views]
+│               ├── sync.ts         # POST/GET /api/onboarding/sync[/configure|/start|/status|/...]
 │               └── testRoutes.ts   # GET /api/test/health
 ├── lib/
 │   ├── api-spec/             # OpenAPI spec + Orval codegen config
@@ -92,10 +98,11 @@ All tables are in PostgreSQL. Schema managed by Drizzle Kit.
 | `system_alerts` | Health alerts and notifications |
 | `insights` | AI-generated insights (cached) |
 
-## API Endpoints (Phase 1 — Foundation)
+## API Endpoints
 
 All protected endpoints require: `Authorization: Bearer <api_key>`
 
+### Phase 1 — Foundation
 | Method | Path | Auth | Description |
 |---|---|---|---|
 | `GET` | `/api/healthz` | No | Server health check |
@@ -105,6 +112,22 @@ All protected endpoints require: `Authorization: Bearer <api_key>`
 | `GET` | `/api/onboarding/merchant/:id/complexity` | Yes | Get complexity score breakdown |
 | `POST` | `/api/onboarding/agent-config/generate-key` | Yes | Rotate API key |
 | `GET` | `/api/test/health` | No | Full system health check (DB + env vars) |
+
+### Phase 2 — Magento Connection & Sync
+| Method | Path | Auth | Description |
+|---|---|---|---|
+| `POST` | `/api/onboarding/connect` | Yes | Save/update Magento credentials (encrypted) |
+| `POST` | `/api/onboarding/connect/test` | Yes | Test connection, detect store metadata + views |
+| `GET` | `/api/onboarding/connect/health` | Yes | Deep health check (latency, catalog, inventory) |
+| `GET` | `/api/onboarding/connect/store-views` | Yes | List detected store views |
+| `PATCH` | `/api/onboarding/connect/store-views` | Yes | Update selected store views |
+| `POST` | `/api/onboarding/sync/configure` | Yes | Save sync filter config |
+| `POST` | `/api/onboarding/sync/start` | Yes | Start full or delta sync job (async) |
+| `GET` | `/api/onboarding/sync/status` | Yes | Get sync job progress |
+| `POST` | `/api/onboarding/sync/pause` | Yes | Pause a running sync job |
+| `POST` | `/api/onboarding/sync/cancel` | Yes | Cancel a sync job |
+| `GET` | `/api/onboarding/sync/summary` | Yes | Sync history and stats |
+| `GET` | `/api/onboarding/sync/errors` | Yes | Per-product error log (paginated) |
 
 ## Response Format
 

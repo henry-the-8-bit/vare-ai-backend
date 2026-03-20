@@ -204,6 +204,177 @@ export const GenerateApiKeyResponse = zod.object({
 });
 
 /**
+ * @summary Save Magento credentials (Phase 2)
+ */
+export const SaveConnectionBody = zod.object({
+  storeUrl: zod.string().url(),
+  consumerKey: zod.string().optional(),
+  consumerSecret: zod.string().optional(),
+  accessToken: zod.string().optional(),
+  accessTokenSecret: zod.string().optional(),
+  apiUser: zod.string().optional(),
+  apiKeyM1: zod.string().optional(),
+});
+
+/**
+ * @summary Test Magento API connection
+ */
+export const TestConnectionResponse = zod.object({
+  data: zod
+    .object({
+      success: zod.boolean(),
+      storeName: zod.string().nullish(),
+      version: zod.string().nullish(),
+      currency: zod.string().nullish(),
+      locale: zod.string().nullish(),
+      storeViews: zod.array(zod.object({}).passthrough()).nullish(),
+      latencyMs: zod.number().nullish(),
+      error: zod.string().nullish(),
+      errorCode: zod.string().nullish(),
+    })
+    .optional(),
+  generated_at: zod.date().optional(),
+});
+
+/**
+ * @summary Deep health check of Magento API
+ */
+export const ConnectionHealthResponse = zod.object({
+  data: zod
+    .object({
+      success: zod.boolean(),
+      apiLatencyMs: zod.number().nullish(),
+      catalogEndpoint: zod.boolean().nullish(),
+      inventoryEndpoint: zod.boolean().nullish(),
+      apiHealthPct: zod.number().nullish(),
+      error: zod.string().nullish(),
+    })
+    .optional(),
+  generated_at: zod.date().optional(),
+});
+
+/**
+ * @summary List detected store views
+ */
+export const ListStoreViewsResponse = zod.object({
+  data: zod.array(zod.object({}).passthrough()).optional(),
+  generated_at: zod.date().optional(),
+});
+
+/**
+ * @summary Update store view selections
+ */
+export const UpdateStoreViewSelectionsBody = zod.object({
+  selected: zod.array(zod.string().uuid()),
+});
+
+export const UpdateStoreViewSelectionsResponse = zod.object({
+  data: zod.array(zod.object({}).passthrough()).optional(),
+  generated_at: zod.date().optional(),
+});
+
+/**
+ * @summary Configure catalog sync filters
+ */
+export const configureSyncFiltersBodyProductTypesDefault = [
+  `simple`,
+  `configurable`,
+  `grouped`,
+  `bundle`,
+];
+export const configureSyncFiltersBodyStatusDefault = [`1`];
+export const configureSyncFiltersBodyVisibilityDefault = [`1`, `2`, `3`, `4`];
+
+export const ConfigureSyncFiltersBody = zod.object({
+  productTypes: zod
+    .array(zod.string())
+    .default(configureSyncFiltersBodyProductTypesDefault),
+  status: zod
+    .array(zod.string())
+    .default(configureSyncFiltersBodyStatusDefault),
+  visibility: zod
+    .array(zod.string())
+    .default(configureSyncFiltersBodyVisibilityDefault),
+  categoryIds: zod.array(zod.number()).optional(),
+  attributes: zod.array(zod.string()).optional(),
+});
+
+export const ConfigureSyncFiltersResponse = zod.object({
+  data: zod.object({}).passthrough().optional(),
+  generated_at: zod.date().optional(),
+});
+
+/**
+ * @summary Start a catalog sync job
+ */
+export const startSyncBodyTypeDefault = `full`;
+
+export const StartSyncBody = zod.object({
+  type: zod.enum(["full", "delta"]).default(startSyncBodyTypeDefault),
+});
+
+/**
+ * @summary Get sync job progress
+ */
+export const GetSyncStatusQueryParams = zod.object({
+  jobId: zod.coerce.string().uuid().optional(),
+});
+
+export const GetSyncStatusResponse = zod.object({
+  data: zod
+    .object({
+      jobId: zod.string(),
+      status: zod.string(),
+      totalRecords: zod.number().nullish(),
+      processedRecords: zod.number().nullish(),
+      errorCount: zod.number().nullish(),
+    })
+    .optional(),
+  generated_at: zod.date().optional(),
+});
+
+/**
+ * @summary Pause a running sync job
+ */
+export const PauseSyncBody = zod.object({
+  jobId: zod.string().uuid(),
+});
+
+export const PauseSyncResponse = zod.object({}).passthrough();
+
+/**
+ * @summary Cancel a sync job
+ */
+export const CancelSyncBody = zod.object({
+  jobId: zod.string().uuid(),
+});
+
+export const CancelSyncResponse = zod.object({}).passthrough();
+
+/**
+ * @summary Get sync history summary
+ */
+export const GetSyncSummaryResponse = zod.object({}).passthrough();
+
+/**
+ * @summary Get per-product error log for a sync job
+ */
+export const getSyncErrorsQueryPageDefault = 1;
+export const getSyncErrorsQueryLimitDefault = 50;
+export const getSyncErrorsQueryLimitMax = 100;
+
+export const GetSyncErrorsQueryParams = zod.object({
+  jobId: zod.coerce.string().uuid().optional(),
+  page: zod.coerce.number().default(getSyncErrorsQueryPageDefault),
+  limit: zod.coerce
+    .number()
+    .max(getSyncErrorsQueryLimitMax)
+    .default(getSyncErrorsQueryLimitDefault),
+});
+
+export const GetSyncErrorsResponse = zod.object({}).passthrough();
+
+/**
  * @summary Full system health check (DB + auth + env)
  */
 export const SystemHealthCheckResponse = zod.object({

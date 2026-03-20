@@ -17,6 +17,11 @@ import type {
 } from "@tanstack/react-query";
 
 import type {
+  CancelSync200,
+  CancelSyncBody,
+  ConfigureSyncFilters200,
+  ConfigureSyncFiltersBody,
+  ConnectionHealth200,
   CreateMerchant201,
   CreateMerchantRequest,
   ErrorResponse,
@@ -24,10 +29,25 @@ import type {
   GenerateApiKeyBody,
   GetMerchant200,
   GetMerchantComplexity200,
+  GetSyncErrors200,
+  GetSyncErrorsParams,
+  GetSyncStatus200,
+  GetSyncStatusParams,
+  GetSyncSummary200,
   HealthCheck200,
+  ListStoreViews200,
+  PauseSync200,
+  PauseSyncBody,
+  SaveConnection201,
+  SaveConnectionBody,
+  StartSync202,
+  StartSyncBody,
   SystemHealthCheck200,
+  TestConnection200,
   UpdateMerchant200,
   UpdateMerchantRequest,
+  UpdateStoreViewSelections200,
+  UpdateStoreViewSelectionsBody,
 } from "./api.schemas";
 
 import { customFetch } from "../custom-fetch";
@@ -552,6 +572,1021 @@ export const useGenerateApiKey = <
 > => {
   return useMutation(getGenerateApiKeyMutationOptions(options));
 };
+
+/**
+ * @summary Save Magento credentials (Phase 2)
+ */
+export const getSaveConnectionUrl = () => {
+  return `/api/onboarding/connect`;
+};
+
+export const saveConnection = async (
+  saveConnectionBody: SaveConnectionBody,
+  options?: RequestInit,
+): Promise<SaveConnection201> => {
+  return customFetch<SaveConnection201>(getSaveConnectionUrl(), {
+    ...options,
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...options?.headers },
+    body: JSON.stringify(saveConnectionBody),
+  });
+};
+
+export const getSaveConnectionMutationOptions = <
+  TError = ErrorType<ErrorResponse>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof saveConnection>>,
+    TError,
+    { data: BodyType<SaveConnectionBody> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof saveConnection>>,
+  TError,
+  { data: BodyType<SaveConnectionBody> },
+  TContext
+> => {
+  const mutationKey = ["saveConnection"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof saveConnection>>,
+    { data: BodyType<SaveConnectionBody> }
+  > = (props) => {
+    const { data } = props ?? {};
+
+    return saveConnection(data, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type SaveConnectionMutationResult = NonNullable<
+  Awaited<ReturnType<typeof saveConnection>>
+>;
+export type SaveConnectionMutationBody = BodyType<SaveConnectionBody>;
+export type SaveConnectionMutationError = ErrorType<ErrorResponse>;
+
+/**
+ * @summary Save Magento credentials (Phase 2)
+ */
+export const useSaveConnection = <
+  TError = ErrorType<ErrorResponse>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof saveConnection>>,
+    TError,
+    { data: BodyType<SaveConnectionBody> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof saveConnection>>,
+  TError,
+  { data: BodyType<SaveConnectionBody> },
+  TContext
+> => {
+  return useMutation(getSaveConnectionMutationOptions(options));
+};
+
+/**
+ * @summary Test Magento API connection
+ */
+export const getTestConnectionUrl = () => {
+  return `/api/onboarding/connect/test`;
+};
+
+export const testConnection = async (
+  options?: RequestInit,
+): Promise<TestConnection200> => {
+  return customFetch<TestConnection200>(getTestConnectionUrl(), {
+    ...options,
+    method: "POST",
+  });
+};
+
+export const getTestConnectionMutationOptions = <
+  TError = ErrorType<ErrorResponse>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof testConnection>>,
+    TError,
+    void,
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof testConnection>>,
+  TError,
+  void,
+  TContext
+> => {
+  const mutationKey = ["testConnection"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof testConnection>>,
+    void
+  > = () => {
+    return testConnection(requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type TestConnectionMutationResult = NonNullable<
+  Awaited<ReturnType<typeof testConnection>>
+>;
+
+export type TestConnectionMutationError = ErrorType<ErrorResponse>;
+
+/**
+ * @summary Test Magento API connection
+ */
+export const useTestConnection = <
+  TError = ErrorType<ErrorResponse>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof testConnection>>,
+    TError,
+    void,
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof testConnection>>,
+  TError,
+  void,
+  TContext
+> => {
+  return useMutation(getTestConnectionMutationOptions(options));
+};
+
+/**
+ * @summary Deep health check of Magento API
+ */
+export const getConnectionHealthUrl = () => {
+  return `/api/onboarding/connect/health`;
+};
+
+export const connectionHealth = async (
+  options?: RequestInit,
+): Promise<ConnectionHealth200> => {
+  return customFetch<ConnectionHealth200>(getConnectionHealthUrl(), {
+    ...options,
+    method: "GET",
+  });
+};
+
+export const getConnectionHealthQueryKey = () => {
+  return [`/api/onboarding/connect/health`] as const;
+};
+
+export const getConnectionHealthQueryOptions = <
+  TData = Awaited<ReturnType<typeof connectionHealth>>,
+  TError = ErrorType<ErrorResponse>,
+>(options?: {
+  query?: UseQueryOptions<
+    Awaited<ReturnType<typeof connectionHealth>>,
+    TError,
+    TData
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}) => {
+  const { query: queryOptions, request: requestOptions } = options ?? {};
+
+  const queryKey = queryOptions?.queryKey ?? getConnectionHealthQueryKey();
+
+  const queryFn: QueryFunction<
+    Awaited<ReturnType<typeof connectionHealth>>
+  > = ({ signal }) => connectionHealth({ signal, ...requestOptions });
+
+  return { queryKey, queryFn, ...queryOptions } as UseQueryOptions<
+    Awaited<ReturnType<typeof connectionHealth>>,
+    TError,
+    TData
+  > & { queryKey: QueryKey };
+};
+
+export type ConnectionHealthQueryResult = NonNullable<
+  Awaited<ReturnType<typeof connectionHealth>>
+>;
+export type ConnectionHealthQueryError = ErrorType<ErrorResponse>;
+
+/**
+ * @summary Deep health check of Magento API
+ */
+
+export function useConnectionHealth<
+  TData = Awaited<ReturnType<typeof connectionHealth>>,
+  TError = ErrorType<ErrorResponse>,
+>(options?: {
+  query?: UseQueryOptions<
+    Awaited<ReturnType<typeof connectionHealth>>,
+    TError,
+    TData
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+  const queryOptions = getConnectionHealthQueryOptions(options);
+
+  const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
+    queryKey: QueryKey;
+  };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+/**
+ * @summary List detected store views
+ */
+export const getListStoreViewsUrl = () => {
+  return `/api/onboarding/connect/store-views`;
+};
+
+export const listStoreViews = async (
+  options?: RequestInit,
+): Promise<ListStoreViews200> => {
+  return customFetch<ListStoreViews200>(getListStoreViewsUrl(), {
+    ...options,
+    method: "GET",
+  });
+};
+
+export const getListStoreViewsQueryKey = () => {
+  return [`/api/onboarding/connect/store-views`] as const;
+};
+
+export const getListStoreViewsQueryOptions = <
+  TData = Awaited<ReturnType<typeof listStoreViews>>,
+  TError = ErrorType<ErrorResponse>,
+>(options?: {
+  query?: UseQueryOptions<
+    Awaited<ReturnType<typeof listStoreViews>>,
+    TError,
+    TData
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}) => {
+  const { query: queryOptions, request: requestOptions } = options ?? {};
+
+  const queryKey = queryOptions?.queryKey ?? getListStoreViewsQueryKey();
+
+  const queryFn: QueryFunction<Awaited<ReturnType<typeof listStoreViews>>> = ({
+    signal,
+  }) => listStoreViews({ signal, ...requestOptions });
+
+  return { queryKey, queryFn, ...queryOptions } as UseQueryOptions<
+    Awaited<ReturnType<typeof listStoreViews>>,
+    TError,
+    TData
+  > & { queryKey: QueryKey };
+};
+
+export type ListStoreViewsQueryResult = NonNullable<
+  Awaited<ReturnType<typeof listStoreViews>>
+>;
+export type ListStoreViewsQueryError = ErrorType<ErrorResponse>;
+
+/**
+ * @summary List detected store views
+ */
+
+export function useListStoreViews<
+  TData = Awaited<ReturnType<typeof listStoreViews>>,
+  TError = ErrorType<ErrorResponse>,
+>(options?: {
+  query?: UseQueryOptions<
+    Awaited<ReturnType<typeof listStoreViews>>,
+    TError,
+    TData
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+  const queryOptions = getListStoreViewsQueryOptions(options);
+
+  const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
+    queryKey: QueryKey;
+  };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+/**
+ * @summary Update store view selections
+ */
+export const getUpdateStoreViewSelectionsUrl = () => {
+  return `/api/onboarding/connect/store-views`;
+};
+
+export const updateStoreViewSelections = async (
+  updateStoreViewSelectionsBody: UpdateStoreViewSelectionsBody,
+  options?: RequestInit,
+): Promise<UpdateStoreViewSelections200> => {
+  return customFetch<UpdateStoreViewSelections200>(
+    getUpdateStoreViewSelectionsUrl(),
+    {
+      ...options,
+      method: "PATCH",
+      headers: { "Content-Type": "application/json", ...options?.headers },
+      body: JSON.stringify(updateStoreViewSelectionsBody),
+    },
+  );
+};
+
+export const getUpdateStoreViewSelectionsMutationOptions = <
+  TError = ErrorType<ErrorResponse>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof updateStoreViewSelections>>,
+    TError,
+    { data: BodyType<UpdateStoreViewSelectionsBody> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof updateStoreViewSelections>>,
+  TError,
+  { data: BodyType<UpdateStoreViewSelectionsBody> },
+  TContext
+> => {
+  const mutationKey = ["updateStoreViewSelections"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof updateStoreViewSelections>>,
+    { data: BodyType<UpdateStoreViewSelectionsBody> }
+  > = (props) => {
+    const { data } = props ?? {};
+
+    return updateStoreViewSelections(data, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type UpdateStoreViewSelectionsMutationResult = NonNullable<
+  Awaited<ReturnType<typeof updateStoreViewSelections>>
+>;
+export type UpdateStoreViewSelectionsMutationBody =
+  BodyType<UpdateStoreViewSelectionsBody>;
+export type UpdateStoreViewSelectionsMutationError = ErrorType<ErrorResponse>;
+
+/**
+ * @summary Update store view selections
+ */
+export const useUpdateStoreViewSelections = <
+  TError = ErrorType<ErrorResponse>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof updateStoreViewSelections>>,
+    TError,
+    { data: BodyType<UpdateStoreViewSelectionsBody> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof updateStoreViewSelections>>,
+  TError,
+  { data: BodyType<UpdateStoreViewSelectionsBody> },
+  TContext
+> => {
+  return useMutation(getUpdateStoreViewSelectionsMutationOptions(options));
+};
+
+/**
+ * @summary Configure catalog sync filters
+ */
+export const getConfigureSyncFiltersUrl = () => {
+  return `/api/onboarding/sync/configure`;
+};
+
+export const configureSyncFilters = async (
+  configureSyncFiltersBody: ConfigureSyncFiltersBody,
+  options?: RequestInit,
+): Promise<ConfigureSyncFilters200> => {
+  return customFetch<ConfigureSyncFilters200>(getConfigureSyncFiltersUrl(), {
+    ...options,
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...options?.headers },
+    body: JSON.stringify(configureSyncFiltersBody),
+  });
+};
+
+export const getConfigureSyncFiltersMutationOptions = <
+  TError = ErrorType<ErrorResponse>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof configureSyncFilters>>,
+    TError,
+    { data: BodyType<ConfigureSyncFiltersBody> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof configureSyncFilters>>,
+  TError,
+  { data: BodyType<ConfigureSyncFiltersBody> },
+  TContext
+> => {
+  const mutationKey = ["configureSyncFilters"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof configureSyncFilters>>,
+    { data: BodyType<ConfigureSyncFiltersBody> }
+  > = (props) => {
+    const { data } = props ?? {};
+
+    return configureSyncFilters(data, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type ConfigureSyncFiltersMutationResult = NonNullable<
+  Awaited<ReturnType<typeof configureSyncFilters>>
+>;
+export type ConfigureSyncFiltersMutationBody =
+  BodyType<ConfigureSyncFiltersBody>;
+export type ConfigureSyncFiltersMutationError = ErrorType<ErrorResponse>;
+
+/**
+ * @summary Configure catalog sync filters
+ */
+export const useConfigureSyncFilters = <
+  TError = ErrorType<ErrorResponse>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof configureSyncFilters>>,
+    TError,
+    { data: BodyType<ConfigureSyncFiltersBody> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof configureSyncFilters>>,
+  TError,
+  { data: BodyType<ConfigureSyncFiltersBody> },
+  TContext
+> => {
+  return useMutation(getConfigureSyncFiltersMutationOptions(options));
+};
+
+/**
+ * @summary Start a catalog sync job
+ */
+export const getStartSyncUrl = () => {
+  return `/api/onboarding/sync/start`;
+};
+
+export const startSync = async (
+  startSyncBody: StartSyncBody,
+  options?: RequestInit,
+): Promise<StartSync202> => {
+  return customFetch<StartSync202>(getStartSyncUrl(), {
+    ...options,
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...options?.headers },
+    body: JSON.stringify(startSyncBody),
+  });
+};
+
+export const getStartSyncMutationOptions = <
+  TError = ErrorType<ErrorResponse>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof startSync>>,
+    TError,
+    { data: BodyType<StartSyncBody> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof startSync>>,
+  TError,
+  { data: BodyType<StartSyncBody> },
+  TContext
+> => {
+  const mutationKey = ["startSync"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof startSync>>,
+    { data: BodyType<StartSyncBody> }
+  > = (props) => {
+    const { data } = props ?? {};
+
+    return startSync(data, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type StartSyncMutationResult = NonNullable<
+  Awaited<ReturnType<typeof startSync>>
+>;
+export type StartSyncMutationBody = BodyType<StartSyncBody>;
+export type StartSyncMutationError = ErrorType<ErrorResponse>;
+
+/**
+ * @summary Start a catalog sync job
+ */
+export const useStartSync = <
+  TError = ErrorType<ErrorResponse>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof startSync>>,
+    TError,
+    { data: BodyType<StartSyncBody> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof startSync>>,
+  TError,
+  { data: BodyType<StartSyncBody> },
+  TContext
+> => {
+  return useMutation(getStartSyncMutationOptions(options));
+};
+
+/**
+ * @summary Get sync job progress
+ */
+export const getGetSyncStatusUrl = (params?: GetSyncStatusParams) => {
+  const normalizedParams = new URLSearchParams();
+
+  Object.entries(params || {}).forEach(([key, value]) => {
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? "null" : value.toString());
+    }
+  });
+
+  const stringifiedParams = normalizedParams.toString();
+
+  return stringifiedParams.length > 0
+    ? `/api/onboarding/sync/status?${stringifiedParams}`
+    : `/api/onboarding/sync/status`;
+};
+
+export const getSyncStatus = async (
+  params?: GetSyncStatusParams,
+  options?: RequestInit,
+): Promise<GetSyncStatus200> => {
+  return customFetch<GetSyncStatus200>(getGetSyncStatusUrl(params), {
+    ...options,
+    method: "GET",
+  });
+};
+
+export const getGetSyncStatusQueryKey = (params?: GetSyncStatusParams) => {
+  return [`/api/onboarding/sync/status`, ...(params ? [params] : [])] as const;
+};
+
+export const getGetSyncStatusQueryOptions = <
+  TData = Awaited<ReturnType<typeof getSyncStatus>>,
+  TError = ErrorType<ErrorResponse>,
+>(
+  params?: GetSyncStatusParams,
+  options?: {
+    query?: UseQueryOptions<
+      Awaited<ReturnType<typeof getSyncStatus>>,
+      TError,
+      TData
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+) => {
+  const { query: queryOptions, request: requestOptions } = options ?? {};
+
+  const queryKey = queryOptions?.queryKey ?? getGetSyncStatusQueryKey(params);
+
+  const queryFn: QueryFunction<Awaited<ReturnType<typeof getSyncStatus>>> = ({
+    signal,
+  }) => getSyncStatus(params, { signal, ...requestOptions });
+
+  return { queryKey, queryFn, ...queryOptions } as UseQueryOptions<
+    Awaited<ReturnType<typeof getSyncStatus>>,
+    TError,
+    TData
+  > & { queryKey: QueryKey };
+};
+
+export type GetSyncStatusQueryResult = NonNullable<
+  Awaited<ReturnType<typeof getSyncStatus>>
+>;
+export type GetSyncStatusQueryError = ErrorType<ErrorResponse>;
+
+/**
+ * @summary Get sync job progress
+ */
+
+export function useGetSyncStatus<
+  TData = Awaited<ReturnType<typeof getSyncStatus>>,
+  TError = ErrorType<ErrorResponse>,
+>(
+  params?: GetSyncStatusParams,
+  options?: {
+    query?: UseQueryOptions<
+      Awaited<ReturnType<typeof getSyncStatus>>,
+      TError,
+      TData
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+  const queryOptions = getGetSyncStatusQueryOptions(params, options);
+
+  const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
+    queryKey: QueryKey;
+  };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+/**
+ * @summary Pause a running sync job
+ */
+export const getPauseSyncUrl = () => {
+  return `/api/onboarding/sync/pause`;
+};
+
+export const pauseSync = async (
+  pauseSyncBody: PauseSyncBody,
+  options?: RequestInit,
+): Promise<PauseSync200> => {
+  return customFetch<PauseSync200>(getPauseSyncUrl(), {
+    ...options,
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...options?.headers },
+    body: JSON.stringify(pauseSyncBody),
+  });
+};
+
+export const getPauseSyncMutationOptions = <
+  TError = ErrorType<ErrorResponse>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof pauseSync>>,
+    TError,
+    { data: BodyType<PauseSyncBody> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof pauseSync>>,
+  TError,
+  { data: BodyType<PauseSyncBody> },
+  TContext
+> => {
+  const mutationKey = ["pauseSync"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof pauseSync>>,
+    { data: BodyType<PauseSyncBody> }
+  > = (props) => {
+    const { data } = props ?? {};
+
+    return pauseSync(data, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type PauseSyncMutationResult = NonNullable<
+  Awaited<ReturnType<typeof pauseSync>>
+>;
+export type PauseSyncMutationBody = BodyType<PauseSyncBody>;
+export type PauseSyncMutationError = ErrorType<ErrorResponse>;
+
+/**
+ * @summary Pause a running sync job
+ */
+export const usePauseSync = <
+  TError = ErrorType<ErrorResponse>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof pauseSync>>,
+    TError,
+    { data: BodyType<PauseSyncBody> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof pauseSync>>,
+  TError,
+  { data: BodyType<PauseSyncBody> },
+  TContext
+> => {
+  return useMutation(getPauseSyncMutationOptions(options));
+};
+
+/**
+ * @summary Cancel a sync job
+ */
+export const getCancelSyncUrl = () => {
+  return `/api/onboarding/sync/cancel`;
+};
+
+export const cancelSync = async (
+  cancelSyncBody: CancelSyncBody,
+  options?: RequestInit,
+): Promise<CancelSync200> => {
+  return customFetch<CancelSync200>(getCancelSyncUrl(), {
+    ...options,
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...options?.headers },
+    body: JSON.stringify(cancelSyncBody),
+  });
+};
+
+export const getCancelSyncMutationOptions = <
+  TError = ErrorType<ErrorResponse>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof cancelSync>>,
+    TError,
+    { data: BodyType<CancelSyncBody> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof cancelSync>>,
+  TError,
+  { data: BodyType<CancelSyncBody> },
+  TContext
+> => {
+  const mutationKey = ["cancelSync"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof cancelSync>>,
+    { data: BodyType<CancelSyncBody> }
+  > = (props) => {
+    const { data } = props ?? {};
+
+    return cancelSync(data, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type CancelSyncMutationResult = NonNullable<
+  Awaited<ReturnType<typeof cancelSync>>
+>;
+export type CancelSyncMutationBody = BodyType<CancelSyncBody>;
+export type CancelSyncMutationError = ErrorType<ErrorResponse>;
+
+/**
+ * @summary Cancel a sync job
+ */
+export const useCancelSync = <
+  TError = ErrorType<ErrorResponse>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof cancelSync>>,
+    TError,
+    { data: BodyType<CancelSyncBody> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof cancelSync>>,
+  TError,
+  { data: BodyType<CancelSyncBody> },
+  TContext
+> => {
+  return useMutation(getCancelSyncMutationOptions(options));
+};
+
+/**
+ * @summary Get sync history summary
+ */
+export const getGetSyncSummaryUrl = () => {
+  return `/api/onboarding/sync/summary`;
+};
+
+export const getSyncSummary = async (
+  options?: RequestInit,
+): Promise<GetSyncSummary200> => {
+  return customFetch<GetSyncSummary200>(getGetSyncSummaryUrl(), {
+    ...options,
+    method: "GET",
+  });
+};
+
+export const getGetSyncSummaryQueryKey = () => {
+  return [`/api/onboarding/sync/summary`] as const;
+};
+
+export const getGetSyncSummaryQueryOptions = <
+  TData = Awaited<ReturnType<typeof getSyncSummary>>,
+  TError = ErrorType<ErrorResponse>,
+>(options?: {
+  query?: UseQueryOptions<
+    Awaited<ReturnType<typeof getSyncSummary>>,
+    TError,
+    TData
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}) => {
+  const { query: queryOptions, request: requestOptions } = options ?? {};
+
+  const queryKey = queryOptions?.queryKey ?? getGetSyncSummaryQueryKey();
+
+  const queryFn: QueryFunction<Awaited<ReturnType<typeof getSyncSummary>>> = ({
+    signal,
+  }) => getSyncSummary({ signal, ...requestOptions });
+
+  return { queryKey, queryFn, ...queryOptions } as UseQueryOptions<
+    Awaited<ReturnType<typeof getSyncSummary>>,
+    TError,
+    TData
+  > & { queryKey: QueryKey };
+};
+
+export type GetSyncSummaryQueryResult = NonNullable<
+  Awaited<ReturnType<typeof getSyncSummary>>
+>;
+export type GetSyncSummaryQueryError = ErrorType<ErrorResponse>;
+
+/**
+ * @summary Get sync history summary
+ */
+
+export function useGetSyncSummary<
+  TData = Awaited<ReturnType<typeof getSyncSummary>>,
+  TError = ErrorType<ErrorResponse>,
+>(options?: {
+  query?: UseQueryOptions<
+    Awaited<ReturnType<typeof getSyncSummary>>,
+    TError,
+    TData
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+  const queryOptions = getGetSyncSummaryQueryOptions(options);
+
+  const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
+    queryKey: QueryKey;
+  };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+/**
+ * @summary Get per-product error log for a sync job
+ */
+export const getGetSyncErrorsUrl = (params?: GetSyncErrorsParams) => {
+  const normalizedParams = new URLSearchParams();
+
+  Object.entries(params || {}).forEach(([key, value]) => {
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? "null" : value.toString());
+    }
+  });
+
+  const stringifiedParams = normalizedParams.toString();
+
+  return stringifiedParams.length > 0
+    ? `/api/onboarding/sync/errors?${stringifiedParams}`
+    : `/api/onboarding/sync/errors`;
+};
+
+export const getSyncErrors = async (
+  params?: GetSyncErrorsParams,
+  options?: RequestInit,
+): Promise<GetSyncErrors200> => {
+  return customFetch<GetSyncErrors200>(getGetSyncErrorsUrl(params), {
+    ...options,
+    method: "GET",
+  });
+};
+
+export const getGetSyncErrorsQueryKey = (params?: GetSyncErrorsParams) => {
+  return [`/api/onboarding/sync/errors`, ...(params ? [params] : [])] as const;
+};
+
+export const getGetSyncErrorsQueryOptions = <
+  TData = Awaited<ReturnType<typeof getSyncErrors>>,
+  TError = ErrorType<ErrorResponse>,
+>(
+  params?: GetSyncErrorsParams,
+  options?: {
+    query?: UseQueryOptions<
+      Awaited<ReturnType<typeof getSyncErrors>>,
+      TError,
+      TData
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+) => {
+  const { query: queryOptions, request: requestOptions } = options ?? {};
+
+  const queryKey = queryOptions?.queryKey ?? getGetSyncErrorsQueryKey(params);
+
+  const queryFn: QueryFunction<Awaited<ReturnType<typeof getSyncErrors>>> = ({
+    signal,
+  }) => getSyncErrors(params, { signal, ...requestOptions });
+
+  return { queryKey, queryFn, ...queryOptions } as UseQueryOptions<
+    Awaited<ReturnType<typeof getSyncErrors>>,
+    TError,
+    TData
+  > & { queryKey: QueryKey };
+};
+
+export type GetSyncErrorsQueryResult = NonNullable<
+  Awaited<ReturnType<typeof getSyncErrors>>
+>;
+export type GetSyncErrorsQueryError = ErrorType<ErrorResponse>;
+
+/**
+ * @summary Get per-product error log for a sync job
+ */
+
+export function useGetSyncErrors<
+  TData = Awaited<ReturnType<typeof getSyncErrors>>,
+  TError = ErrorType<ErrorResponse>,
+>(
+  params?: GetSyncErrorsParams,
+  options?: {
+    query?: UseQueryOptions<
+      Awaited<ReturnType<typeof getSyncErrors>>,
+      TError,
+      TData
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+  const queryOptions = getGetSyncErrorsQueryOptions(params, options);
+
+  const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
+    queryKey: QueryKey;
+  };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
 
 /**
  * @summary Full system health check (DB + auth + env)
