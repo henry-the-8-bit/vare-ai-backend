@@ -477,6 +477,43 @@ export async function runBatchNormalization(jobId: string, merchantId: string): 
   const total = products.length;
   await db.update(syncJobsTable).set({ totalRecords: total }).where(eq(syncJobsTable.id, jobId));
 
+  const approvedMappingRows = await db
+    .select({
+      id: attributeMappingsTable.id,
+      sourceAttribute: attributeMappingsTable.sourceAttribute,
+      targetAttribute: attributeMappingsTable.targetAttribute,
+    })
+    .from(attributeMappingsTable)
+    .where(and(eq(attributeMappingsTable.merchantId, merchantId), eq(attributeMappingsTable.mappingStatus, "auto")));
+
+  const attrMap = new Map<string, string>(
+    approvedMappingRows
+      .filter((m) => m.sourceAttribute && m.targetAttribute)
+      .map((m) => [m.sourceAttribute, m.targetAttribute!]),
+  );
+
+  const mappingIdBySourceAttr = new Map<string, string>(
+    approvedMappingRows
+      .filter((m) => m.sourceAttribute)
+      .map((m) => [m.sourceAttribute, m.id]),
+  );
+
+  const approvedValues = await db
+    .select({
+      sourceValue: valueNormalizationsTable.sourceValue,
+      normalizedValue: valueNormalizationsTable.normalizedValue,
+      attributeMappingId: valueNormalizationsTable.attributeMappingId,
+    })
+    .from(valueNormalizationsTable)
+    .where(and(eq(valueNormalizationsTable.merchantId, merchantId), eq(valueNormalizationsTable.status, "approved")));
+
+  const valueMapById = new Map<string, Map<string, string>>();
+  for (const v of approvedValues) {
+    if (!v.attributeMappingId || !v.sourceValue || !v.normalizedValue) continue;
+    if (!valueMapById.has(v.attributeMappingId)) valueMapById.set(v.attributeMappingId, new Map());
+    valueMapById.get(v.attributeMappingId)!.set(v.sourceValue, v.normalizedValue);
+  }
+
   let processed = 0;
   let errors = 0;
   const errorLog: Array<{ sku: string; error: string; timestamp: string }> = [];
@@ -521,7 +558,46 @@ export async function runBatchNormalization(jobId: string, merchantId: string): 
     for (const { raw, fields } of batch) {
       try {
         const llmData = llmEnrichedMap.get(raw.sku) ?? {};
-        const merged: NormalizedFields = { ...fields, ...llmData };
+        let merged: NormalizedFields = { ...fields, ...llmData };
+
+        const rawData = (raw.rawData ?? {}) as Record<string, unknown>;
+        const customAttrs = rawData["custom_attributes"];
+        const customMap: Record<string, unknown> = {};
+        if (Array.isArray(customAttrs)) {
+          for (const ca of customAttrs as Array<Record<string, unknown>>) {
+            if (ca["attribute_code"] && ca["value"] !== undefined) {
+              customMap[String(ca["attribute_code"])] = ca["value"];
+            }
+          }
+        }
+        const allRawAttrs = { ...rawData, ...customMap };
+
+        for (const [sourceAttr, targetAttr] of attrMap) {
+          const rawVal = allRawAttrs[sourceAttr];
+          if (rawVal === undefined || rawVal === null || rawVal === "") continue;
+          const mappingId = mappingIdBySourceAttr.get(sourceAttr);
+          const valueMap = mappingId ? valueMapById.get(mappingId) : undefined;
+          const normalizedVal = valueMap ? (valueMap.get(String(rawVal)) ?? String(rawVal)) : String(rawVal);
+
+          const target = targetAttr as keyof NormalizedFields;
+          if (merged[target] === undefined || merged[target] === null || merged[target] === "") {
+            (merged as unknown as Record<string, unknown>)[target] = normalizedVal;
+          }
+        }
+
+        if (merged.customAttributes && typeof merged.customAttributes === "object") {
+          const ca = merged.customAttributes as Record<string, unknown>;
+          for (const [sourceAttr, targetAttr] of attrMap) {
+            const rawVal = ca[sourceAttr];
+            if (rawVal === undefined || rawVal === null || rawVal === "") continue;
+            const mappingId = mappingIdBySourceAttr.get(sourceAttr);
+            const valueMap = mappingId ? valueMapById.get(mappingId) : undefined;
+            const normalizedVal = valueMap ? (valueMap.get(String(rawVal)) ?? String(rawVal)) : String(rawVal);
+            ca[targetAttr] = normalizedVal;
+          }
+        }
+
+        merged = merged;
         const score = computeAgentReadinessScore(merged);
 
         const status = score >= 80 ? "complete" : score >= 40 ? "partial" : "needs_review";
