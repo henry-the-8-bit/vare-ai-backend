@@ -207,6 +207,15 @@ export class MagentoConnector {
       filterIdx++;
     }
 
+    if (filters.categoryIds && filters.categoryIds.length > 0) {
+      for (let i = 0; i < filters.categoryIds.length; i++) {
+        params.set(`searchCriteria[filterGroups][${filterIdx}][filters][${i}][field]`, "category_id");
+        params.set(`searchCriteria[filterGroups][${filterIdx}][filters][${i}][value]`, String(filters.categoryIds[i]));
+        params.set(`searchCriteria[filterGroups][${filterIdx}][filters][${i}][conditionType]`, "eq");
+      }
+      filterIdx++;
+    }
+
     const url = `${this.storeUrl}/rest/V1/products?${params.toString()}`;
     const response = await this.fetchWithTimeout(url, { headers: this.buildHeaders() });
 
@@ -268,9 +277,8 @@ export class MagentoConnector {
   async healthCheck(): Promise<HealthCheckResult> {
     const checks: Partial<HealthCheckResult> = {};
     let successCount = 0;
-    const totalChecks = 3;
+    const totalChecks = 4;
 
-    const start = Date.now();
     try {
       const result = await this.testConnection();
       checks.apiLatencyMs = result.latencyMs;
@@ -304,10 +312,22 @@ export class MagentoConnector {
       checks.inventoryEndpoint = false;
     }
 
+    try {
+      const mediaBaseUrl = `${this.storeUrl}/media/catalog/product/`;
+      const controller = new AbortController();
+      const id = setTimeout(() => controller.abort(), 5000);
+      const response = await fetch(mediaBaseUrl, { signal: controller.signal, method: "HEAD" });
+      clearTimeout(id);
+      checks.imageCdnReachable = response.status < 500;
+      if (checks.imageCdnReachable) successCount++;
+    } catch {
+      checks.imageCdnReachable = false;
+    }
+
     const apiHealthPct = Math.round((successCount / totalChecks) * 100);
 
     return {
-      success: apiHealthPct >= 66,
+      success: apiHealthPct >= 50,
       ...checks,
       apiHealthPct,
     };

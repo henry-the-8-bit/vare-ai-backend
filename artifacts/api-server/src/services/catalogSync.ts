@@ -5,7 +5,7 @@ import {
   magentoConnectionsTable,
   merchantsTable,
 } from "@workspace/db/schema";
-import { eq, and } from "drizzle-orm";
+import { eq, and, desc } from "drizzle-orm";
 import { MagentoConnector, type SyncFilters } from "./magentoConnector.js";
 import { decrypt } from "../lib/crypto.js";
 import { logger } from "../lib/logger.js";
@@ -223,6 +223,7 @@ export class CatalogSyncService {
       productTypes: config.productTypes,
       status: config.status,
       visibility: config.visibility,
+      categoryIds: config.categoryIds,
     };
 
     activeJobs.set(job.id, { paused: false, cancelled: false });
@@ -254,7 +255,7 @@ export class CatalogSyncService {
           eq(syncJobsTable.status, "completed"),
         ),
       )
-      .orderBy(syncJobsTable.completedAt)
+      .orderBy(desc(syncJobsTable.completedAt))
       .limit(1);
 
     const updatedSince = lastCompleted?.completedAt?.toISOString() ?? new Date(Date.now() - 86400_000).toISOString();
@@ -311,11 +312,11 @@ export class CatalogSyncService {
     return true;
   }
 
-  async getJob(jobId: string): Promise<SyncJobRecord | null> {
+  async getJob(jobId: string, merchantId: string): Promise<SyncJobRecord | null> {
     const [job] = await db
       .select()
       .from(syncJobsTable)
-      .where(eq(syncJobsTable.id, jobId))
+      .where(and(eq(syncJobsTable.id, jobId), eq(syncJobsTable.merchantId, merchantId)))
       .limit(1);
     return job ?? null;
   }
@@ -325,7 +326,7 @@ export class CatalogSyncService {
       .select()
       .from(syncJobsTable)
       .where(eq(syncJobsTable.merchantId, merchantId))
-      .orderBy(syncJobsTable.createdAt)
+      .orderBy(desc(syncJobsTable.createdAt))
       .limit(1);
     return job ?? null;
   }

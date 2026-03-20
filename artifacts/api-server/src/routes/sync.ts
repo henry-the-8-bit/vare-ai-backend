@@ -70,7 +70,7 @@ router.get("/sync/status", requireAuth, async (req: Request, res: Response) => {
 
   let job;
   if (jobId) {
-    job = await catalogSyncService.getJob(jobId);
+    job = await catalogSyncService.getJob(jobId, merchantId);
   } else {
     job = await catalogSyncService.getLatestJob(merchantId);
   }
