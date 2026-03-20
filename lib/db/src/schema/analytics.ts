@@ -15,6 +15,7 @@ import { merchantsTable } from "./merchants";
 export const agentOrdersTable = pgTable("agent_orders", {
   id: uuid("id").primaryKey().defaultRandom(),
   merchantId: uuid("merchant_id").references(() => merchantsTable.id, { onDelete: "cascade" }),
+  agentOrderRef: varchar("agent_order_ref", { length: 100 }),
   magentoOrderId: varchar("magento_order_id", { length: 100 }),
   agentPlatform: varchar("agent_platform", { length: 50 }),
   agentSessionId: varchar("agent_session_id", { length: 255 }),

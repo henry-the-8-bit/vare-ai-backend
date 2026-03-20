@@ -177,10 +177,10 @@ export async function injectOrder(
   const paymentMethod = options.paymentMethod ?? cart.paymentMethod ?? "vare_ai";
   const shippingMethod = options.shippingMethod ?? cart.shippingMethod ?? "flatrate_flatrate";
 
+  const agentOrderRef = `vare-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
   let magentoOrderId: string | null = null;
   let orderStatus: "placed" | "failed" | "simulated" = "simulated";
   let errorMessage: string | undefined;
-  let internalOrderId = `vare-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
 
   if (!isTestOrder) {
     try {
@@ -232,6 +232,7 @@ export async function injectOrder(
   for (const item of cartItems) {
     await db.insert(agentOrdersTable).values({
       merchantId,
+      agentOrderRef,
       magentoOrderId,
       agentPlatform: options.agentPlatform ?? cart.agentPlatform ?? "api",
       agentSessionId: options.sessionId ?? cart.sessionId ?? null,
@@ -267,11 +268,11 @@ export async function injectOrder(
   const confirmation = magentoOrderId
     ? `Order #${magentoOrderId} placed successfully`
     : isTestOrder
-      ? `Test order simulated — ref: ${internalOrderId}`
-      : `Order simulated — ref: ${internalOrderId}`;
+      ? `Test order simulated — ref: ${agentOrderRef}`
+      : `Order simulated — ref: ${agentOrderRef}`;
 
   return {
-    orderId: internalOrderId,
+    orderId: agentOrderRef,
     magentoOrderId,
     status: orderStatus,
     confirmation,
@@ -306,22 +307,42 @@ async function createMagentoOrder(
 }
 
 export async function cancelTestOrder(merchantId: string, orderId: string): Promise<{ cancelled: boolean; message: string }> {
+  const { or } = await import("drizzle-orm");
+
   const orders = await db
     .select()
     .from(agentOrdersTable)
-    .where(and(eq(agentOrdersTable.merchantId, merchantId), eq(agentOrdersTable.magentoOrderId, orderId)));
+    .where(
+      and(
+        eq(agentOrdersTable.merchantId, merchantId),
+        or(
+          eq(agentOrdersTable.agentOrderRef, orderId),
+          eq(agentOrdersTable.magentoOrderId, orderId),
+        ),
+      ),
+    );
 
   if (orders.length === 0) {
     return { cancelled: false, message: "Order not found" };
   }
 
-  if (orders[0].orderStatus === "simulated" || orders[0].orderStatus === "placed") {
-    await db
-      .update(agentOrdersTable)
-      .set({ orderStatus: "cancelled", updatedAt: new Date() })
-      .where(and(eq(agentOrdersTable.merchantId, merchantId), eq(agentOrdersTable.magentoOrderId, orderId)));
-    return { cancelled: true, message: `Order ${orderId} cancelled` };
+  const firstOrder = orders[0];
+  if (firstOrder.orderStatus !== "simulated" && firstOrder.orderStatus !== "placed") {
+    return { cancelled: false, message: `Cannot cancel order in status: ${firstOrder.orderStatus}` };
   }
 
-  return { cancelled: false, message: `Cannot cancel order in status: ${orders[0].orderStatus}` };
+  const ref = firstOrder.agentOrderRef ?? orderId;
+  await db
+    .update(agentOrdersTable)
+    .set({ orderStatus: "cancelled", updatedAt: new Date() })
+    .where(
+      and(
+        eq(agentOrdersTable.merchantId, merchantId),
+        or(
+          eq(agentOrdersTable.agentOrderRef, orderId),
+          eq(agentOrdersTable.magentoOrderId, orderId),
+        ),
+      ),
+    );
+  return { cancelled: true, message: `Order ${ref} cancelled` };
 }

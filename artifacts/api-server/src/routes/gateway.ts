@@ -1,7 +1,7 @@
 import { Router, type IRouter, type Request, type Response } from "express";
 import { db } from "@workspace/db";
 import { merchantsTable, agentConfigsTable, agentOrdersTable } from "@workspace/db/schema";
-import { eq, and } from "drizzle-orm";
+import { eq, and, or } from "drizzle-orm";
 import { requireAuth } from "../middlewares/auth.js";
 import { successResponse, errorResponse } from "../lib/response.js";
 import { buildCart, injectOrder, cancelTestOrder } from "../services/orderInjectionService.js";
@@ -131,39 +131,30 @@ router.delete("/gateway/test-order/:order_id", requireAuth, async (req: Request,
     return;
   }
 
-  const orders = await db
+  const [targetOrder] = await db
     .select()
     .from(agentOrdersTable)
-    .where(and(
-      eq(agentOrdersTable.merchantId, merchantId),
-      eq(agentOrdersTable.agentPlatform, "gateway-test"),
-    ));
+    .where(
+      and(
+        eq(agentOrdersTable.merchantId, merchantId),
+        eq(agentOrdersTable.agentPlatform, "gateway-test"),
+        or(
+          eq(agentOrdersTable.agentOrderRef, orderId),
+          eq(agentOrdersTable.magentoOrderId, orderId),
+        ),
+      ),
+    )
+    .limit(1);
 
-  if (orders.length === 0) {
+  if (!targetOrder) {
     errorResponse(res, "Test order not found or cannot be cancelled", "NOT_FOUND", 404);
     return;
   }
 
-  const targetOrder = orders.find((o) => o.id === orderId || o.magentoOrderId === orderId);
-  if (!targetOrder) {
-    errorResponse(res, "Test order not found for this merchant", "NOT_FOUND", 404);
-    return;
-  }
+  const refToCancel = targetOrder.agentOrderRef ?? targetOrder.magentoOrderId ?? orderId;
+  const result = await cancelTestOrder(merchantId, refToCancel);
 
-  const result = await cancelTestOrder(merchantId, targetOrder.magentoOrderId ?? orderId);
-
-  if (!result.cancelled) {
-    const [updatedRows] = await db
-      .update(agentOrdersTable)
-      .set({ orderStatus: "cancelled", updatedAt: new Date() })
-      .where(and(eq(agentOrdersTable.merchantId, merchantId), eq(agentOrdersTable.id, targetOrder.id)))
-      .returning({ id: agentOrdersTable.id });
-
-    successResponse(res, { message: `Test order ${orderId} cancelled`, cancelled: true });
-    return;
-  }
-
-  successResponse(res, { message: result.message, cancelled: true });
+  successResponse(res, { message: result.message, cancelled: result.cancelled });
 });
 
 export default router;

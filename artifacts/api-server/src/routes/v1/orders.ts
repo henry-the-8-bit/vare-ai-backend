@@ -1,7 +1,7 @@
 import { Router, type IRouter, type Request, type Response } from "express";
 import { db } from "@workspace/db";
 import { agentOrdersTable, agentCartsTable, agentConfigsTable, normalizedProductsTable } from "@workspace/db/schema";
-import { eq, and, desc, sql, inArray } from "drizzle-orm";
+import { eq, and, desc, sql, inArray, or } from "drizzle-orm";
 import { requireAgentAuth } from "../../middlewares/auth.js";
 import { successResponse, paginatedResponse, errorResponse } from "../../lib/response.js";
 import { buildCart, injectOrder, cancelTestOrder } from "../../services/orderInjectionService.js";
@@ -178,14 +178,19 @@ router.get("/orders/:order_id", requireAgentAuth, async (req: Request, res: Resp
   const orders = await db
     .select()
     .from(agentOrdersTable)
-    .where(and(eq(agentOrdersTable.merchantId, merchantId), eq(agentOrdersTable.magentoOrderId, orderId)));
+    .where(
+      and(
+        eq(agentOrdersTable.merchantId, merchantId),
+        or(eq(agentOrdersTable.agentOrderRef, orderId), eq(agentOrdersTable.magentoOrderId, orderId)),
+      ),
+    );
 
   if (orders.length === 0) {
     errorResponse(res, "Order not found", "NOT_FOUND", 404);
     return;
   }
 
-  successResponse(res, orders);
+  successResponse(res, orders[0]);
 });
 
 router.delete("/orders/:order_id", requireAgentAuth, async (req: Request, res: Response) => {
@@ -200,7 +205,12 @@ router.delete("/orders/:order_id", requireAgentAuth, async (req: Request, res: R
   const orders = await db
     .select()
     .from(agentOrdersTable)
-    .where(and(eq(agentOrdersTable.merchantId, merchantId), eq(agentOrdersTable.magentoOrderId, orderId)));
+    .where(
+      and(
+        eq(agentOrdersTable.merchantId, merchantId),
+        or(eq(agentOrdersTable.agentOrderRef, orderId), eq(agentOrdersTable.magentoOrderId, orderId)),
+      ),
+    );
 
   if (orders.length === 0) {
     errorResponse(res, "Order not found", "NOT_FOUND", 404);
