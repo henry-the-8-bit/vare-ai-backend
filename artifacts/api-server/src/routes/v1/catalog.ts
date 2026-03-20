@@ -100,30 +100,6 @@ router.get("/catalog", requireAgentAuth, async (req: Request, res: Response) => 
   const baseWhereClause = and(...conditions);
   const offset = (page - 1) * limit;
 
-  let productQuery = db
-    .select({
-      id: normalizedProductsTable.id,
-      sku: normalizedProductsTable.sku,
-      productTitle: normalizedProductsTable.productTitle,
-      brand: normalizedProductsTable.brand,
-      manufacturer: normalizedProductsTable.manufacturer,
-      mpn: normalizedProductsTable.mpn,
-      upc: normalizedProductsTable.upc,
-      price: normalizedProductsTable.price,
-      currency: normalizedProductsTable.currency,
-      color: normalizedProductsTable.color,
-      finish: normalizedProductsTable.finish,
-      categoryPath: normalizedProductsTable.categoryPath,
-      imageUrls: normalizedProductsTable.imageUrls,
-      agentReadinessScore: normalizedProductsTable.agentReadinessScore,
-      normalizationStatus: normalizedProductsTable.normalizationStatus,
-      fitmentData: normalizedProductsTable.fitmentData,
-    })
-    .from(normalizedProductsTable)
-    .where(baseWhereClause)
-    .orderBy(desc(normalizedProductsTable.agentReadinessScore))
-    .$dynamic();
-
   if (inStockOnly) {
     const inStockSkus = await db
       .select({ sku: inventoryTable.sku })
