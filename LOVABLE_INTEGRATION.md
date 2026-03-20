@@ -270,7 +270,14 @@ Use the returned `apiKey` in `Authorization: Bearer <apiKey>` for all subsequent
 
 ## CORS
 
-The API allows requests from `localhost` (all ports) and `*.vare-ai.com` in development. Add your Lovable preview domain to the CORS allowlist if needed — update `app.ts` on the backend.
+The following origins are allowed:
+
+- `https://www.vare-ai.com`
+- `https://vare-ai.com`
+- `https://vareai.lovable.app`
+- `https://id-preview--e2850076-57e5-4c16-a21b-819c1d133972.lovable.app`
+- `http://localhost:3000`
+- `http://localhost:5173`
 
 ---
 
