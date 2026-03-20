@@ -1,4 +1,4 @@
-import { pgTable, uuid, varchar, integer, boolean, timestamp, index, unique } from "drizzle-orm/pg-core";
+import { pgTable, uuid, varchar, integer, boolean, timestamp, index, unique, jsonb } from "drizzle-orm/pg-core";
 import { merchantsTable } from "./merchants";
 
 export const inventoryTable = pgTable(
@@ -33,5 +33,16 @@ export const probeConfigsTable = pgTable("probe_configs", {
   createdAt: timestamp("created_at").defaultNow(),
 });
 
+export const fitmentConfigsTable = pgTable("fitment_configs", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  merchantId: uuid("merchant_id").references(() => merchantsTable.id, { onDelete: "cascade" }),
+  source: varchar("source", { length: 50 }).default("description_text"),
+  fields: jsonb("fields"),
+  enabled: boolean("enabled").default(true),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
 export type Inventory = typeof inventoryTable.$inferSelect;
 export type ProbeConfig = typeof probeConfigsTable.$inferSelect;
+export type FitmentConfig = typeof fitmentConfigsTable.$inferSelect;

@@ -275,4 +275,46 @@ router.patch("/normalization/values/:attributeId/:valueId", requireAuth, async (
   successResponse(res, updated);
 });
 
+router.patch("/normalization/values/:valueId", requireAuth, async (req: Request, res: Response) => {
+  const merchantId = req.merchantId!;
+  const valueId = getParam(req, "valueId");
+
+  if (!valueId) {
+    errorResponse(res, "valueId required", "VALIDATION_ERROR", 400);
+    return;
+  }
+
+  const parsed = updateValueSchema.safeParse(req.body);
+  if (!parsed.success) {
+    errorResponse(res, "Validation failed", "VALIDATION_ERROR", 400, parsed.error.flatten());
+    return;
+  }
+
+  const [existing] = await db
+    .select({ id: valueNormalizationsTable.id })
+    .from(valueNormalizationsTable)
+    .where(and(
+      eq(valueNormalizationsTable.id, valueId),
+      eq(valueNormalizationsTable.merchantId, merchantId),
+    ))
+    .limit(1);
+
+  if (!existing) {
+    errorResponse(res, "Value normalization not found", "NOT_FOUND", 404);
+    return;
+  }
+
+  const [updated] = await db
+    .update(valueNormalizationsTable)
+    .set({
+      normalizedValue: parsed.data.normalizedValue,
+      clusterName: parsed.data.clusterName ?? undefined,
+      status: parsed.data.status,
+    })
+    .where(and(eq(valueNormalizationsTable.id, valueId), eq(valueNormalizationsTable.merchantId, merchantId)))
+    .returning();
+
+  successResponse(res, updated);
+});
+
 export default router;

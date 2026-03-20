@@ -1,6 +1,6 @@
 import { db } from "@workspace/db";
 import { rawProductsTable } from "@workspace/db/schema";
-import { eq, count, sql } from "drizzle-orm";
+import { eq } from "drizzle-orm";
 
 export interface IssueCard {
   issue: string;
@@ -17,6 +17,13 @@ export interface AttributeHeatmapEntry {
   missingCount: number;
 }
 
+export interface ProductTypeHeatmap {
+  productType: string;
+  count: number;
+  heatmap: AttributeHeatmapEntry[];
+  avgCoverage: number;
+}
+
 export interface HealthScanResult {
   merchantId: string;
   totalProducts: number;
@@ -24,6 +31,7 @@ export interface HealthScanResult {
   overallHealthScore: number;
   issueCards: IssueCard[];
   attributeHeatmap: AttributeHeatmapEntry[];
+  productTypeHeatmap: ProductTypeHeatmap[];
   productTypeSummary: Record<string, number>;
   readinessDistribution: {
     ready: number;
@@ -45,12 +53,6 @@ const TRACKED_ATTRIBUTES = [
   "media_gallery_entries",
 ];
 
-type RawProductRow = {
-  sku: string;
-  productType: string | null;
-  rawData: unknown;
-};
-
 export async function runHealthScan(merchantId: string): Promise<HealthScanResult> {
   const products = await db
     .select({
@@ -71,6 +73,7 @@ export async function runHealthScan(merchantId: string): Promise<HealthScanResul
       overallHealthScore: 0,
       issueCards: [],
       attributeHeatmap: [],
+      productTypeHeatmap: [],
       productTypeSummary: {},
       readinessDistribution: { ready: 0, needsWork: 0, incomplete: 0 },
     };
@@ -86,10 +89,12 @@ export async function runHealthScan(merchantId: string): Promise<HealthScanResul
     missingColor: 0,
   };
 
-  const attrCoverage: Record<string, number> = {};
-  for (const attr of TRACKED_ATTRIBUTES) attrCoverage[attr] = 0;
+  const globalAttrCoverage: Record<string, number> = {};
+  for (const attr of TRACKED_ATTRIBUTES) globalAttrCoverage[attr] = 0;
 
   const productTypeCounts: Record<string, number> = {};
+  const perTypeAttrCoverage: Record<string, Record<string, number>> = {};
+
   let readyCount = 0, needsWorkCount = 0, incompleteCount = 0;
 
   for (const row of products) {
@@ -99,6 +104,11 @@ export async function runHealthScan(merchantId: string): Promise<HealthScanResul
 
     const pt = row.productType ?? "unknown";
     productTypeCounts[pt] = (productTypeCounts[pt] ?? 0) + 1;
+
+    if (!perTypeAttrCoverage[pt]) {
+      perTypeAttrCoverage[pt] = {};
+      for (const attr of TRACKED_ATTRIBUTES) perTypeAttrCoverage[pt][attr] = 0;
+    }
 
     const title = String(merged["name"] ?? "");
     const desc = String(merged["description"] ?? merged["short_description"] ?? "");
@@ -118,8 +128,10 @@ export async function runHealthScan(merchantId: string): Promise<HealthScanResul
 
     for (const attr of TRACKED_ATTRIBUTES) {
       const val = merged[attr];
-      if (val !== undefined && val !== null && val !== "") {
-        attrCoverage[attr]++;
+      const hasVal = val !== undefined && val !== null && val !== "";
+      if (hasVal) {
+        globalAttrCoverage[attr]++;
+        perTypeAttrCoverage[pt][attr]++;
       }
     }
 
@@ -190,10 +202,22 @@ export async function runHealthScan(merchantId: string): Promise<HealthScanResul
 
   const attributeHeatmap: AttributeHeatmapEntry[] = TRACKED_ATTRIBUTES.map((attr) => ({
     attribute: attr,
-    coverage: Math.round((attrCoverage[attr] / total) * 100),
-    productCount: attrCoverage[attr],
-    missingCount: total - attrCoverage[attr],
+    coverage: Math.round((globalAttrCoverage[attr] / total) * 100),
+    productCount: globalAttrCoverage[attr],
+    missingCount: total - globalAttrCoverage[attr],
   }));
+
+  const productTypeHeatmap: ProductTypeHeatmap[] = Object.entries(perTypeAttrCoverage).map(([productType, attrCounts]) => {
+    const ptCount = productTypeCounts[productType] ?? 0;
+    const heatmap: AttributeHeatmapEntry[] = TRACKED_ATTRIBUTES.map((attr) => ({
+      attribute: attr,
+      coverage: ptCount > 0 ? Math.round((attrCounts[attr] / ptCount) * 100) : 0,
+      productCount: attrCounts[attr],
+      missingCount: ptCount - attrCounts[attr],
+    }));
+    const avgCoverage = Math.round(heatmap.reduce((a, b) => a + b.coverage, 0) / heatmap.length);
+    return { productType, count: ptCount, heatmap, avgCoverage };
+  });
 
   const avgCoverage = attributeHeatmap.reduce((a, b) => a + b.coverage, 0) / attributeHeatmap.length;
   const issueDeduction = Math.min(30, (issueCounts.missingDescription / total) * 15 + (issueCounts.noImages / total) * 15);
@@ -206,6 +230,7 @@ export async function runHealthScan(merchantId: string): Promise<HealthScanResul
     overallHealthScore,
     issueCards,
     attributeHeatmap,
+    productTypeHeatmap,
     productTypeSummary: productTypeCounts,
     readinessDistribution: {
       ready: readyCount,

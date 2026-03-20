@@ -156,6 +156,10 @@ async function handleFallback(merchantId: string, sku: string, cfg: ProbeConfig,
     return { sku, quantity: null, isInStock: true, source: "fallback_assume_in_stock", latencyMs, cached: false, lastProbed: null, error };
   }
 
+  if (cfg.fallbackBehavior === "assume_out_of_stock") {
+    return { sku, quantity: 0, isInStock: false, source: "fallback_assume_out_of_stock", latencyMs, cached: false, lastProbed: null, error };
+  }
+
   return { sku, quantity: null, isInStock: null, source: "fallback_unknown", latencyMs, cached: false, lastProbed: null, error };
 }
 

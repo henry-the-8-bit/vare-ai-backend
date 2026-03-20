@@ -1,4 +1,7 @@
 import { Router, type IRouter, type Request, type Response } from "express";
+import { db } from "@workspace/db";
+import { fitmentConfigsTable } from "@workspace/db/schema";
+import { eq } from "drizzle-orm";
 import { z } from "zod/v4";
 import { requireAuth } from "../middlewares/auth.js";
 import { successResponse, errorResponse } from "../lib/response.js";
@@ -31,13 +34,56 @@ router.post("/fitment/sources", requireAuth, async (req: Request, res: Response)
     return;
   }
 
-  successResponse(res, {
-    merchantId,
-    source: parsed.data.source,
-    fields: parsed.data.fields ?? [],
-    enabled: parsed.data.enabled,
-    message: "Fitment source configuration saved",
-  });
+  const [existing] = await db
+    .select({ id: fitmentConfigsTable.id })
+    .from(fitmentConfigsTable)
+    .where(eq(fitmentConfigsTable.merchantId, merchantId))
+    .limit(1);
+
+  let config;
+  if (existing) {
+    const [updated] = await db
+      .update(fitmentConfigsTable)
+      .set({
+        source: parsed.data.source,
+        fields: parsed.data.fields ?? [],
+        enabled: parsed.data.enabled,
+        updatedAt: new Date(),
+      })
+      .where(eq(fitmentConfigsTable.merchantId, merchantId))
+      .returning();
+    config = updated;
+  } else {
+    const [inserted] = await db
+      .insert(fitmentConfigsTable)
+      .values({
+        merchantId,
+        source: parsed.data.source,
+        fields: parsed.data.fields ?? [],
+        enabled: parsed.data.enabled,
+      })
+      .returning();
+    config = inserted;
+  }
+
+  successResponse(res, { ...config, message: "Fitment source configuration saved" });
+});
+
+router.get("/fitment/sources", requireAuth, async (req: Request, res: Response) => {
+  const merchantId = req.merchantId!;
+
+  const [config] = await db
+    .select()
+    .from(fitmentConfigsTable)
+    .where(eq(fitmentConfigsTable.merchantId, merchantId))
+    .limit(1);
+
+  if (!config) {
+    successResponse(res, { source: "description_text", fields: [], enabled: true, configured: false });
+    return;
+  }
+
+  successResponse(res, { ...config, configured: true });
 });
 
 const previewFitmentSchema = z.object({
