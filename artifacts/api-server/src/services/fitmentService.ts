@@ -1,6 +1,6 @@
 import { db } from "@workspace/db";
-import { rawProductsTable, normalizedProductsTable } from "@workspace/db/schema";
-import { eq, and } from "drizzle-orm";
+import { rawProductsTable, normalizedProductsTable, fitmentConfigsTable } from "@workspace/db/schema";
+import { eq, and, inArray } from "drizzle-orm";
 import { anthropic } from "@workspace/integrations-anthropic-ai";
 import { batchProcess } from "@workspace/integrations-anthropic-ai/batch";
 import { logger } from "../lib/logger.js";
@@ -115,21 +115,62 @@ export async function extractFitmentFromDescriptions(
   merchantId: string,
   skus?: string[],
 ): Promise<Array<{ sku: string; fitmentData: FitmentData | null }>> {
-  const products = await db
+  const [fitmentCfg] = await db
+    .select()
+    .from(fitmentConfigsTable)
+    .where(eq(fitmentConfigsTable.merchantId, merchantId))
+    .limit(1);
+
+  const source = fitmentCfg?.source ?? "description_text";
+  const enabled = fitmentCfg?.enabled ?? true;
+  const configuredFields = Array.isArray(fitmentCfg?.fields) ? (fitmentCfg.fields as string[]) : [];
+
+  const query = db
     .select({ id: rawProductsTable.id, sku: rawProductsTable.sku, rawData: rawProductsTable.rawData })
     .from(rawProductsTable)
-    .where(eq(rawProductsTable.merchantId, merchantId))
+    .where(
+      skus && skus.length > 0
+        ? and(eq(rawProductsTable.merchantId, merchantId), inArray(rawProductsTable.sku, skus))
+        : eq(rawProductsTable.merchantId, merchantId),
+    )
     .limit(100);
 
-  const filtered = skus ? products.filter((p) => skus.includes(p.sku)) : products;
+  const products = await query;
+
+  if (!enabled) {
+    return products.map((p) => ({ sku: p.sku, fitmentData: null }));
+  }
 
   type FitmentRow = { id: string; sku: string; rawData: unknown };
   const results = await batchProcess(
-    filtered,
+    products,
     async (row: FitmentRow) => {
       const data = (row.rawData ?? {}) as Record<string, unknown>;
-      const desc = String(data["description"] ?? data["short_description"] ?? data["name"] ?? "");
+      const customAttrs = extractCustomAttributes(data);
+      const merged = { ...data, ...customAttrs };
 
+      if (source === "structured_fields") {
+        const fieldsToCheck = configuredFields.length > 0 ? configuredFields : FITMENT_FIELDS;
+        const structured: Record<string, unknown> = {};
+        for (const field of fieldsToCheck) {
+          if (merged[field] !== undefined && merged[field] !== null && merged[field] !== "") {
+            structured[field] = merged[field];
+          }
+        }
+        if (Object.keys(structured).length === 0) return { sku: row.sku, fitmentData: null };
+        const fitmentData: FitmentData = {
+          make: String(structured["make"] ?? ""),
+          model: String(structured["model"] ?? ""),
+          year: String(structured["year_from"] ?? structured["year"] ?? ""),
+          trim: String(structured["trim"] ?? ""),
+          engine: String(structured["engine"] ?? ""),
+          notes: Object.entries(structured).map(([k, v]) => `${k}: ${v}`).join("; "),
+          source: "structured",
+        };
+        return { sku: row.sku, fitmentData };
+      }
+
+      const desc = String(merged["description"] ?? merged["short_description"] ?? merged["name"] ?? "");
       if (!desc || desc.length < 10) return { sku: row.sku, fitmentData: null };
 
       const prompt = `Extract vehicle fitment data from this product description. Return JSON only.
