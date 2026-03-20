@@ -226,7 +226,7 @@ router.post("/normalization/values/:attributeId/discover", requireAuth, async (r
 });
 
 const updateValueSchema = z.object({
-  normalizedValue: z.string().max(500),
+  normalizedValue: z.string().max(500).optional(),
   clusterName: z.string().max(255).optional(),
   status: z.enum(["suggested", "approved", "rejected"]),
 });
@@ -265,8 +265,8 @@ router.patch("/normalization/values/:attributeId/:valueId", requireAuth, async (
   const [updated] = await db
     .update(valueNormalizationsTable)
     .set({
-      normalizedValue: parsed.data.normalizedValue,
-      clusterName: parsed.data.clusterName ?? undefined,
+      ...(parsed.data.normalizedValue !== undefined ? { normalizedValue: parsed.data.normalizedValue } : {}),
+      ...(parsed.data.clusterName !== undefined ? { clusterName: parsed.data.clusterName } : {}),
       status: parsed.data.status,
     })
     .where(and(eq(valueNormalizationsTable.id, valueId), eq(valueNormalizationsTable.merchantId, merchantId)))
@@ -307,8 +307,8 @@ router.patch("/normalization/values/:valueId", requireAuth, async (req: Request,
   const [updated] = await db
     .update(valueNormalizationsTable)
     .set({
-      normalizedValue: parsed.data.normalizedValue,
-      clusterName: parsed.data.clusterName ?? undefined,
+      ...(parsed.data.normalizedValue !== undefined ? { normalizedValue: parsed.data.normalizedValue } : {}),
+      ...(parsed.data.clusterName !== undefined ? { clusterName: parsed.data.clusterName } : {}),
       status: parsed.data.status,
     })
     .where(and(eq(valueNormalizationsTable.id, valueId), eq(valueNormalizationsTable.merchantId, merchantId)))

@@ -127,7 +127,8 @@ router.post("/fitment/apply", requireAuth, async (req: Request, res: Response) =
     return;
   }
 
-  const results = await extractFitmentFromDescriptions(merchantId, parsed.data.skus);
+  const skusToApply = parsed.data.applyAll ? undefined : parsed.data.skus;
+  const results = await extractFitmentFromDescriptions(merchantId, skusToApply);
   const applied = await applyFitmentData(merchantId, results);
 
   successResponse(res, {
@@ -135,6 +136,7 @@ router.post("/fitment/apply", requireAuth, async (req: Request, res: Response) =
     withFitment: results.filter((r) => r.fitmentData !== null).length,
     applied: applied.updated,
     skipped: applied.skipped,
+    applyAll: parsed.data.applyAll,
     message: `Fitment data applied to ${applied.updated} products`,
   });
 });

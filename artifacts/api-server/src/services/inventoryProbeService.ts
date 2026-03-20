@@ -80,7 +80,7 @@ async function getCached(merchantId: string, sku: string, ttlMinutes: number): P
 export async function probeSingleSku(merchantId: string, sku: string): Promise<InventoryResult> {
   const cfg = await getProbeConfig(merchantId);
 
-  if (cfg.probeFrequency === "cached" || cfg.probeFrequency === "realtime") {
+  if (cfg.probeFrequency === "cached") {
     const cached = await getCached(merchantId, sku, cfg.cacheTtlMinutes);
     if (cached) {
       return {
