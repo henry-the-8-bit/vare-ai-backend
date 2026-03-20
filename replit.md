@@ -1,8 +1,8 @@
-# Workspace
+# Vare AI — Backend Workspace
 
 ## Overview
 
-pnpm workspace monorepo using TypeScript. Each package manages its own dependencies.
+pnpm workspace monorepo using TypeScript. Powers the Vare AI platform backend — a multi-tenant API that handles merchant onboarding, catalog sync from Magento, AI-driven product normalization, agent-facing product discovery/ordering, and dashboard analytics.
 
 ## Stack
 
@@ -19,78 +19,129 @@ pnpm workspace monorepo using TypeScript. Each package manages its own dependenc
 ## Structure
 
 ```text
-artifacts-monorepo/
-├── artifacts/              # Deployable applications
-│   └── api-server/         # Express API server
-├── lib/                    # Shared libraries
-│   ├── api-spec/           # OpenAPI spec + Orval codegen config
-│   ├── api-client-react/   # Generated React Query hooks
-│   ├── api-zod/            # Generated Zod schemas from OpenAPI
-│   └── db/                 # Drizzle ORM schema + DB connection
-├── scripts/                # Utility scripts (single workspace package)
-│   └── src/                # Individual .ts scripts, run via `pnpm --filter @workspace/scripts run <script>`
-├── pnpm-workspace.yaml     # pnpm workspace (artifacts/*, lib/*, lib/integrations/*, scripts)
-├── tsconfig.base.json      # Shared TS options (composite, bundler resolution, es2022)
-├── tsconfig.json           # Root TS project references
-└── package.json            # Root package with hoisted devDeps
+workspace/
+├── artifacts/
+│   └── api-server/           # Express 5 API server — Vare AI backend
+│       └── src/
+│           ├── app.ts         # Express app, CORS (allows vare-ai.com), pino logging
+│           ├── index.ts       # Entry — reads PORT, starts server
+│           ├── lib/
+│           │   ├── logger.ts  # Pino structured logger
+│           │   ├── response.ts # successResponse / errorResponse / paginatedResponse helpers
+│           │   └── crypto.ts  # AES-256-GCM encrypt/decrypt, generateApiKey (HMAC)
+│           ├── middlewares/
+│           │   └── auth.ts    # requireAuth — validates Bearer token, attaches merchantId
+│           └── routes/
+│               ├── index.ts        # Mounts all sub-routers at /api
+│               ├── health.ts       # GET /api/healthz
+│               ├── onboarding.ts   # POST/GET/PATCH /api/onboarding/merchant[/:id]
+│               │                   # GET /api/onboarding/merchant/:id/complexity
+│               ├── agentConfig.ts  # POST /api/onboarding/agent-config/generate-key
+│               └── testRoutes.ts   # GET /api/test/health
+├── lib/
+│   ├── api-spec/             # OpenAPI spec + Orval codegen config
+│   ├── api-client-react/     # Generated React Query hooks
+│   ├── api-zod/              # Generated Zod schemas from OpenAPI
+│   └── db/
+│       └── src/
+│           ├── index.ts       # DB pool + Drizzle instance
+│           └── schema/
+│               ├── index.ts          # Barrel export of all tables
+│               ├── merchants.ts      # merchants table
+│               ├── connections.ts    # magento_connections, store_views tables
+│               ├── products.ts       # raw_products, normalized_products tables
+│               ├── normalization.ts  # attribute_mappings, value_normalizations tables
+│               ├── inventory.ts      # inventory, probe_configs tables
+│               ├── jobs.ts           # sync_jobs table
+│               ├── analytics.ts      # agent_orders, agent_queries, transaction_events tables
+│               └── alerts.ts         # system_alerts, insights tables
+├── scripts/                  # Utility scripts
+├── pnpm-workspace.yaml
+├── tsconfig.base.json
+├── tsconfig.json
+└── package.json
 ```
+
+## Environment Variables
+
+| Variable | Required | Description |
+|---|---|---|
+| `DATABASE_URL` | Yes | PostgreSQL connection string (Replit-managed) |
+| `ENCRYPTION_KEY` | Yes | 64-char hex key for AES-256-GCM credential encryption |
+| `VARE_API_SECRET` | Yes | 64-char hex secret for HMAC API key signing |
+
+## Database Tables (15 total)
+
+All tables are in PostgreSQL. Schema managed by Drizzle Kit.
+
+| Table | Purpose |
+|---|---|
+| `merchants` | Merchant accounts + onboarding state |
+| `magento_connections` | Magento API credentials (encrypted at rest) |
+| `store_views` | Store view selections per merchant |
+| `raw_products` | Raw JSONB product data from Magento |
+| `normalized_products` | Agent-ready normalized product data |
+| `attribute_mappings` | Magento attribute → Vare universal attribute mappings |
+| `value_normalizations` | Value cluster rules (e.g., "Blk" → "Black") |
+| `inventory` | Real-time inventory state per SKU |
+| `probe_configs` | Inventory probe configuration |
+| `sync_jobs` | Background job tracking (catalog sync, normalization) |
+| `agent_orders` | Orders placed via AI agents |
+| `agent_queries` | Query log from AI agents (for analytics) |
+| `transaction_events` | Full funnel event tracking |
+| `system_alerts` | Health alerts and notifications |
+| `insights` | AI-generated insights (cached) |
+
+## API Endpoints (Phase 1 — Foundation)
+
+All protected endpoints require: `Authorization: Bearer <api_key>`
+
+| Method | Path | Auth | Description |
+|---|---|---|---|
+| `GET` | `/api/healthz` | No | Server health check |
+| `POST` | `/api/onboarding/merchant` | No | Create merchant (returns API key) |
+| `GET` | `/api/onboarding/merchant/:id` | Yes | Get merchant profile |
+| `PATCH` | `/api/onboarding/merchant/:id` | Yes | Update merchant profile |
+| `GET` | `/api/onboarding/merchant/:id/complexity` | Yes | Get complexity score breakdown |
+| `POST` | `/api/onboarding/agent-config/generate-key` | Yes | Rotate API key |
+| `GET` | `/api/test/health` | No | Full system health check (DB + env vars) |
+
+## Response Format
+
+All endpoints follow the spec response envelope:
+- **Success**: `{ "data": {...}, "generated_at": "ISO8601" }`
+- **Paginated**: `{ "data": [...], "total": N, "page": N, "limit": N, "generated_at": "ISO8601" }`
+- **Error**: `{ "error": "message", "code": "ERROR_CODE", "details": {...} }`
+
+## API Key Format
+
+`vare_live_sk_<48-char-hex>` (live) or `vare_test_sk_<48-char-hex>` (sandbox)
+
+## Auth Middleware
+
+`requireAuth` in `src/middlewares/auth.ts` — validates Bearer token by looking up the merchant in the DB. Attaches `req.merchantId` to the request context. All protected routes automatically scope queries to the authenticated merchant.
+
+## Complexity Score
+
+Computed from: Magento edition (commerce/enterprise = +1), ERP system (non-none = +1), PIM system (non-none = +1), large SKU count (100k+ = +1). Range: 0–4 (Simple → Enterprise).
 
 ## TypeScript & Composite Projects
 
-Every package extends `tsconfig.base.json` which sets `composite: true`. The root `tsconfig.json` lists all packages as project references. This means:
+Every `lib/*` package extends `tsconfig.base.json` with `composite: true`. The root `tsconfig.json` lists lib packages as project references.
 
-- **Always typecheck from the root** — run `pnpm run typecheck` (which runs `tsc --build --emitDeclarationOnly`). This builds the full dependency graph so that cross-package imports resolve correctly. Running `tsc` inside a single package will fail if its dependencies haven't been built yet.
-- **`emitDeclarationOnly`** — we only emit `.d.ts` files during typecheck; actual JS bundling is handled by esbuild/tsx/vite...etc, not `tsc`.
-- **Project references** — when package A depends on package B, A's `tsconfig.json` must list B in its `references` array. `tsc --build` uses this to determine build order and skip up-to-date packages.
+- Run `pnpm run typecheck:libs` — builds the lib dependency graph
+- Run `pnpm run typecheck` — full check (libs + artifacts)
+- Run `pnpm --filter @workspace/db run push` — push schema changes to DB
 
-## Root Scripts
+## Development
 
-- `pnpm run build` — runs `typecheck` first, then recursively runs `build` in all packages that define it
-- `pnpm run typecheck` — runs `tsc --build --emitDeclarationOnly` using project references
+```bash
+# Start API server (dev mode with hot reload)
+pnpm --filter @workspace/api-server run dev
 
-## Packages
+# Push DB schema changes
+pnpm --filter @workspace/db run push
 
-### `artifacts/api-server` (`@workspace/api-server`)
-
-Express 5 API server. Routes live in `src/routes/` and use `@workspace/api-zod` for request and response validation and `@workspace/db` for persistence.
-
-- Entry: `src/index.ts` — reads `PORT`, starts Express
-- App setup: `src/app.ts` — mounts CORS, JSON/urlencoded parsing, routes at `/api`
-- Routes: `src/routes/index.ts` mounts sub-routers; `src/routes/health.ts` exposes `GET /health` (full path: `/api/health`)
-- Depends on: `@workspace/db`, `@workspace/api-zod`
-- `pnpm --filter @workspace/api-server run dev` — run the dev server
-- `pnpm --filter @workspace/api-server run build` — production esbuild bundle (`dist/index.cjs`)
-- Build bundles an allowlist of deps (express, cors, pg, drizzle-orm, zod, etc.) and externalizes the rest
-
-### `lib/db` (`@workspace/db`)
-
-Database layer using Drizzle ORM with PostgreSQL. Exports a Drizzle client instance and schema models.
-
-- `src/index.ts` — creates a `Pool` + Drizzle instance, exports schema
-- `src/schema/index.ts` — barrel re-export of all models
-- `src/schema/<modelname>.ts` — table definitions with `drizzle-zod` insert schemas (no models definitions exist right now)
-- `drizzle.config.ts` — Drizzle Kit config (requires `DATABASE_URL`, automatically provided by Replit)
-- Exports: `.` (pool, db, schema), `./schema` (schema only)
-
-Production migrations are handled by Replit when publishing. In development, we just use `pnpm --filter @workspace/db run push`, and we fallback to `pnpm --filter @workspace/db run push-force`.
-
-### `lib/api-spec` (`@workspace/api-spec`)
-
-Owns the OpenAPI 3.1 spec (`openapi.yaml`) and the Orval config (`orval.config.ts`). Running codegen produces output into two sibling packages:
-
-1. `lib/api-client-react/src/generated/` — React Query hooks + fetch client
-2. `lib/api-zod/src/generated/` — Zod schemas
-
-Run codegen: `pnpm --filter @workspace/api-spec run codegen`
-
-### `lib/api-zod` (`@workspace/api-zod`)
-
-Generated Zod schemas from the OpenAPI spec (e.g. `HealthCheckResponse`). Used by `api-server` for response validation.
-
-### `lib/api-client-react` (`@workspace/api-client-react`)
-
-Generated React Query hooks and fetch client from the OpenAPI spec (e.g. `useHealthCheck`, `healthCheck`).
-
-### `scripts` (`@workspace/scripts`)
-
-Utility scripts package. Each script is a `.ts` file in `src/` with a corresponding npm script in `package.json`. Run scripts via `pnpm --filter @workspace/scripts run <script>`. Scripts can import any workspace package (e.g., `@workspace/db`) by adding it as a dependency in `scripts/package.json`.
+# Full typecheck
+pnpm run typecheck
+```
