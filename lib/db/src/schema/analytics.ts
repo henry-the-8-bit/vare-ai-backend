@@ -66,6 +66,43 @@ export const transactionEventsTable = pgTable(
   (t) => [index("idx_transaction_events_merchant_date").on(t.merchantId, t.createdAt)],
 );
 
+export const agentConfigsTable = pgTable("agent_configs", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  merchantId: uuid("merchant_id").references(() => merchantsTable.id, { onDelete: "cascade" }),
+  allowedPlatforms: jsonb("allowed_platforms"),
+  rateLimitPerMinute: integer("rate_limit_per_minute").default(60),
+  requireCartConfirmation: boolean("require_cart_confirmation").default(false),
+  maxOrderValueCents: integer("max_order_value_cents"),
+  defaultShippingMethod: varchar("default_shipping_method", { length: 100 }).default("flatrate_flatrate"),
+  defaultPaymentMethod: varchar("default_payment_method", { length: 100 }).default("vare_ai"),
+  testOrderEnabled: boolean("test_order_enabled").default(true),
+  webhookUrl: varchar("webhook_url", { length: 500 }),
+  enabledCapabilities: jsonb("enabled_capabilities"),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+export const agentCartsTable = pgTable("agent_carts", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  merchantId: uuid("merchant_id").references(() => merchantsTable.id, { onDelete: "cascade" }),
+  agentPlatform: varchar("agent_platform", { length: 50 }),
+  sessionId: varchar("session_id", { length: 255 }),
+  items: jsonb("items"),
+  subtotalCents: integer("subtotal_cents").default(0),
+  taxCents: integer("tax_cents").default(0),
+  shippingCents: integer("shipping_cents").default(0),
+  totalCents: integer("total_cents").default(0),
+  status: varchar("status", { length: 20 }).default("active"),
+  magentoQuoteId: varchar("magento_quote_id", { length: 255 }),
+  customerEmail: varchar("customer_email", { length: 255 }),
+  shippingMethod: varchar("shipping_method", { length: 100 }),
+  paymentMethod: varchar("payment_method", { length: 100 }),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
 export type AgentOrder = typeof agentOrdersTable.$inferSelect;
 export type AgentQuery = typeof agentQueriesTable.$inferSelect;
 export type TransactionEvent = typeof transactionEventsTable.$inferSelect;
+export type AgentConfig = typeof agentConfigsTable.$inferSelect;
+export type AgentCart = typeof agentCartsTable.$inferSelect;

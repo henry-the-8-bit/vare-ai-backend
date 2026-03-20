@@ -282,6 +282,103 @@ export class MagentoConnector {
     return response.json();
   }
 
+  async createGuestCart(): Promise<string> {
+    const url = `${this.storeUrl}/rest/V1/guest-carts`;
+    const response = await this.fetchWithTimeout(url, {
+      method: "POST",
+      headers: this.buildHeaders(),
+    });
+
+    if (!response.ok) {
+      const body = await response.text();
+      throw this.mapHttpError(response.status, body);
+    }
+
+    const quoteId = (await response.json()) as string;
+    return quoteId;
+  }
+
+  async addItemToGuestCart(quoteId: string, sku: string, qty: number): Promise<unknown> {
+    const url = `${this.storeUrl}/rest/V1/guest-carts/${quoteId}/items`;
+    const response = await this.fetchWithTimeout(url, {
+      method: "POST",
+      headers: this.buildHeaders(),
+      body: JSON.stringify({
+        cartItem: {
+          sku,
+          qty,
+          quote_id: quoteId,
+        },
+      }),
+    });
+
+    if (!response.ok) {
+      const body = await response.text();
+      throw this.mapHttpError(response.status, body);
+    }
+
+    return response.json();
+  }
+
+  async setGuestShipping(
+    quoteId: string,
+    email: string,
+    address: Record<string, unknown>,
+    shippingMethod: string,
+  ): Promise<unknown> {
+    const [carrier, method] = shippingMethod.split("_", 2);
+    const url = `${this.storeUrl}/rest/V1/guest-carts/${quoteId}/shipping-information`;
+    const response = await this.fetchWithTimeout(url, {
+      method: "POST",
+      headers: this.buildHeaders(),
+      body: JSON.stringify({
+        addressInformation: {
+          shipping_address: { ...address, email },
+          billing_address: { ...address, email },
+          shipping_carrier_code: carrier ?? "flatrate",
+          shipping_method_code: method ?? "flatrate",
+        },
+      }),
+    });
+
+    if (!response.ok) {
+      const body = await response.text();
+      throw this.mapHttpError(response.status, body);
+    }
+
+    return response.json();
+  }
+
+  async placeGuestOrder(quoteId: string, paymentMethod: string): Promise<unknown> {
+    const url = `${this.storeUrl}/rest/V1/guest-carts/${quoteId}/order`;
+    const response = await this.fetchWithTimeout(url, {
+      method: "PUT",
+      headers: this.buildHeaders(),
+      body: JSON.stringify({
+        paymentMethod: {
+          method: paymentMethod ?? "checkmo",
+        },
+      }),
+    });
+
+    if (!response.ok) {
+      const body = await response.text();
+      throw this.mapHttpError(response.status, body);
+    }
+
+    return response.json();
+  }
+
+  async cancelOrder(orderId: string): Promise<boolean> {
+    const url = `${this.storeUrl}/rest/V1/orders/${orderId}/cancel`;
+    const response = await this.fetchWithTimeout(url, {
+      method: "POST",
+      headers: this.buildHeaders(),
+    });
+
+    return response.ok;
+  }
+
   async healthCheck(): Promise<HealthCheckResult> {
     const checks: Partial<HealthCheckResult> = {};
     let successCount = 0;

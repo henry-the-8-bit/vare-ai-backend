@@ -1,4 +1,4 @@
-modules = ["nodejs-24"]
+modules = ["nodejs-24", "postgresql-16"]
 
 [[artifacts]]
 id = "artifacts/api-server"
@@ -30,3 +30,6 @@ timeoutMs = 20000
 [userenv.shared]
 ENCRYPTION_KEY = "81bed73021e51cffaf30e61840a8c6aa9cfc3753c1c39e8482ec141c4c853e69"
 VARE_API_SECRET = "ccba15ddcaef0d1d11b33d755d9f152abaa0e702f6b9b1d718aee08e594df62f"
+
+[nix]
+channel = "stable-25_05"

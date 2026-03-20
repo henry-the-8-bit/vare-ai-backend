@@ -37,24 +37,30 @@ workspace/
 │           │   └── automotiveRules.ts  # Attribute alias map, finish normalizations, edit-distance
 │           ├── services/
 │           │   ├── magentoConnector.ts      # MagentoConnector — HTTP client wrapping Magento REST API
+│           │   │                             # Includes createGuestCart, addItemToGuestCart, setGuestShipping, placeGuestOrder, cancelOrder
 │           │   ├── catalogSync.ts           # CatalogSyncService — background batch sync, pause/cancel
 │           │   ├── healthScanService.ts     # Attribute coverage heatmap, issue cards, readiness score
 │           │   ├── normalizationService.ts  # 3-layer pipeline: rules → LLM (claude-haiku-4-5) → score
 │           │   │                             # discoverAttributeMappings, discoverValueClusters, batch
 │           │   ├── fitmentService.ts        # Fitment assessment, LLM extraction from descriptions
-│           │   └── inventoryProbeService.ts # SKU-level inventory probe with cache + fallback logic
+│           │   ├── inventoryProbeService.ts # SKU-level inventory probe with cache + fallback logic
+│           │   └── orderInjectionService.ts # buildCart, injectOrder, cancelTestOrder — Magento order injection
 │           └── routes/
 │               ├── index.ts          # Mounts all sub-routers at /api
 │               ├── health.ts         # GET /api/healthz
 │               ├── onboarding.ts     # POST/GET/PATCH /api/onboarding/merchant[/:id]
-│               ├── agentConfig.ts    # POST /api/onboarding/agent-config/generate-key
+│               ├── agentConfig.ts    # GET/PATCH /api/onboarding/agent-config, set-slug, generate-key, review, activate
 │               ├── connect.ts        # POST/GET /api/onboarding/connect[/test|/health|/store-views]
 │               ├── sync.ts           # POST/GET /api/onboarding/sync[/configure|/start|/status|/...]
 │               ├── healthScan.ts     # GET /api/onboarding/health-scan
 │               ├── normalization.ts  # GET/POST /api/onboarding/normalization/*
 │               ├── fitment.ts        # GET/POST /api/onboarding/fitment/*
 │               ├── probe.ts          # GET/POST /api/onboarding/probe/*
-│               └── testRoutes.ts     # GET /api/test/health
+│               ├── testRoutes.ts     # GET /api/test/health, POST simulate-agent-query, simulate-order
+│               └── v1/
+│                   ├── index.ts      # Mounts catalog + orders under /api/v1/merchants/:slug
+│                   ├── catalog.ts    # GET /catalog, /catalog/:sku, /catalog/:sku/inventory (slug-auth)
+│                   └── orders.ts     # POST /cart, /cart/:id/checkout, GET /orders, /carts/:id (slug-auth)
 ├── lib/
 │   ├── api-spec/             # OpenAPI spec + Orval codegen config
 │   ├── api-client-react/     # Generated React Query hooks
@@ -88,13 +94,13 @@ workspace/
 | `ENCRYPTION_KEY` | Yes | 64-char hex key for AES-256-GCM credential encryption |
 | `VARE_API_SECRET` | Yes | 64-char hex secret for HMAC API key signing |
 
-## Database Tables (15 total)
+## Database Tables (17 total)
 
 All tables are in PostgreSQL. Schema managed by Drizzle Kit.
 
 | Table | Purpose |
 |---|---|
-| `merchants` | Merchant accounts + onboarding state |
+| `merchants` | Merchant accounts + onboarding state (includes `slug` for v1 URL routing) |
 | `magento_connections` | Magento API credentials (encrypted at rest) |
 | `store_views` | Store view selections per merchant |
 | `raw_products` | Raw JSONB product data from Magento |
@@ -107,6 +113,8 @@ All tables are in PostgreSQL. Schema managed by Drizzle Kit.
 | `agent_orders` | Orders placed via AI agents |
 | `agent_queries` | Query log from AI agents (for analytics) |
 | `transaction_events` | Full funnel event tracking |
+| `agent_configs` | Per-merchant agent configuration (rate limits, payment/shipping defaults, capabilities) |
+| `agent_carts` | Active and checked-out agent shopping carts |
 | `system_alerts` | Health alerts and notifications |
 | `insights` | AI-generated insights (cached) |
 
@@ -122,8 +130,30 @@ All protected endpoints require: `Authorization: Bearer <api_key>`
 | `GET` | `/api/onboarding/merchant/:id` | Yes | Get merchant profile |
 | `PATCH` | `/api/onboarding/merchant/:id` | Yes | Update merchant profile |
 | `GET` | `/api/onboarding/merchant/:id/complexity` | Yes | Get complexity score breakdown |
-| `POST` | `/api/onboarding/agent-config/generate-key` | Yes | Rotate API key |
-| `GET` | `/api/test/health` | No | Full system health check (DB + env vars) |
+| `POST` | `/api/test/health` | Yes | Full system health check (DB + env vars) |
+
+### Phase 4 — Agent-Facing API & Order Injection
+| Method | Path | Auth | Description |
+|---|---|---|---|
+| `GET` | `/api/onboarding/agent-config` | Bearer | Get current agent config + slug + key hint |
+| `PATCH` | `/api/onboarding/agent-config` | Bearer | Update agent config (rate limits, capabilities, etc.) |
+| `POST` | `/api/onboarding/agent-config/set-slug` | Bearer | Set merchant URL slug |
+| `POST` | `/api/onboarding/agent-config/generate-key` | Bearer | Rotate API key (live or test mode) |
+| `POST` | `/api/onboarding/agent-config/review` | Bearer | Pre-activation checklist |
+| `POST` | `/api/onboarding/agent-config/activate` | Bearer | Go live — flip isLive flag |
+| `GET` | `/api/v1/merchants/:slug/catalog` | Slug+Bearer | Search normalized product catalog |
+| `GET` | `/api/v1/merchants/:slug/catalog/:sku` | Slug+Bearer | Get single product with inventory |
+| `GET` | `/api/v1/merchants/:slug/catalog/:sku/inventory` | Slug+Bearer | Inventory state for a SKU |
+| `POST` | `/api/v1/merchants/:slug/cart` | Slug+Bearer | Create a cart with line items |
+| `GET` | `/api/v1/merchants/:slug/carts/:id` | Slug+Bearer | Get cart state |
+| `POST` | `/api/v1/merchants/:slug/cart/:id/checkout` | Slug+Bearer | Place order via Magento (or simulate) |
+| `GET` | `/api/v1/merchants/:slug/orders` | Slug+Bearer | List agent orders (paginated) |
+| `GET` | `/api/v1/merchants/:slug/orders/:id` | Slug+Bearer | Get order by Magento order ID |
+| `DELETE` | `/api/v1/merchants/:slug/orders/:id` | Slug+Bearer | Cancel a simulated/test order |
+| `POST` | `/api/test/simulate-agent-query` | Bearer | Simulate a keyword query + log to analytics |
+| `POST` | `/api/test/simulate-order` | Bearer | Simulate cart build + optional test order |
+| `GET` | `/api/test/agent-orders` | Bearer | Get recent agent order records |
+| `GET` | `/api/test/agent-queries` | Bearer | Get recent agent query records |
 
 ### Phase 3 — Normalization Engine, Fitment & Inventory Probe
 | Method | Path | Auth | Description |
@@ -174,7 +204,10 @@ All endpoints follow the spec response envelope:
 
 ## Auth Middleware
 
-`requireAuth` in `src/middlewares/auth.ts` — validates Bearer token by looking up the merchant in the DB. Attaches `req.merchantId` to the request context. All protected routes automatically scope queries to the authenticated merchant.
+Two middleware patterns in `src/middlewares/auth.ts`:
+
+- `requireAuth` — validates `Bearer <api_key>` token against the `merchants` table. Attaches `req.merchantId`. Used for onboarding/admin routes.
+- `requireAgentAuth` — validates `Bearer <api_key>` AND URL path `:merchant_slug` together. Both must match the same merchant row. Attaches `req.merchantId`, `req.merchantSlug`, and `req.agentPlatform` (from `X-Agent-Platform` header). Used for all `/api/v1/` agent-facing routes to prevent IDOR across merchants.
 
 ## Complexity Score
 

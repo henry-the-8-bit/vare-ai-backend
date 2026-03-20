@@ -1,9 +1,10 @@
-import { pgTable, uuid, varchar, integer, boolean, timestamp } from "drizzle-orm/pg-core";
+import { pgTable, uuid, varchar, integer, boolean, timestamp, unique } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod/v4";
 
 export const merchantsTable = pgTable("merchants", {
   id: uuid("id").primaryKey().defaultRandom(),
+  slug: varchar("slug", { length: 100 }),
   companyName: varchar("company_name", { length: 200 }).notNull(),
   contactFirstName: varchar("contact_first_name", { length: 100 }),
   contactLastName: varchar("contact_last_name", { length: 100 }),
@@ -23,7 +24,9 @@ export const merchantsTable = pgTable("merchants", {
   isLive: boolean("is_live").default(false),
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
-});
+}, (t) => [
+  unique("uq_merchants_slug").on(t.slug),
+]);
 
 export const insertMerchantSchema = createInsertSchema(merchantsTable).omit({
   id: true,

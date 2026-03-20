@@ -9,6 +9,7 @@ import healthScanRouter from "./healthScan.js";
 import normalizationRouter from "./normalization.js";
 import fitmentRouter from "./fitment.js";
 import probeRouter from "./probe.js";
+import v1Router from "./v1/index.js";
 
 const router: IRouter = Router();
 
@@ -22,5 +23,6 @@ router.use("/onboarding", normalizationRouter);
 router.use("/onboarding", fitmentRouter);
 router.use("/onboarding", probeRouter);
 router.use("/test", testRouter);
+router.use("/v1", v1Router);
 
 export default router;
