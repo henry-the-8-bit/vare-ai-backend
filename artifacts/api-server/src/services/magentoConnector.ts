@@ -349,7 +349,7 @@ export class MagentoConnector {
     return response.json();
   }
 
-  async placeGuestOrder(quoteId: string, paymentMethod: string): Promise<unknown> {
+  async placeGuestOrder(quoteId: string, paymentMethod: string, options?: { source?: string }): Promise<unknown> {
     const url = `${this.storeUrl}/rest/V1/guest-carts/${quoteId}/order`;
     const response = await this.fetchWithTimeout(url, {
       method: "PUT",
@@ -357,6 +357,7 @@ export class MagentoConnector {
       body: JSON.stringify({
         paymentMethod: {
           method: paymentMethod ?? "checkmo",
+          additional_data: options?.source ? { source: options.source, platform: "vare_ai" } : undefined,
         },
       }),
     });

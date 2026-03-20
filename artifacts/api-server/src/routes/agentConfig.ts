@@ -218,6 +218,96 @@ router.post("/agent-config/activate", requireAuth, async (req: Request, res: Res
   });
 });
 
+router.get("/review", requireAuth, async (req: Request, res: Response) => {
+  const merchantId = req.merchantId!;
+
+  const [merchant] = await db
+    .select()
+    .from(merchantsTable)
+    .where(eq(merchantsTable.id, merchantId))
+    .limit(1);
+
+  if (!merchant) {
+    errorResponse(res, "Merchant not found", "NOT_FOUND", 404);
+    return;
+  }
+
+  const [agentCfg] = await db
+    .select()
+    .from(agentConfigsTable)
+    .where(eq(agentConfigsTable.merchantId, merchantId))
+    .limit(1);
+
+  const checks = {
+    hasApiKey: !!merchant.apiKey,
+    hasSlug: !!merchant.slug,
+    isLive: merchant.isLive,
+    sandboxMode: merchant.sandboxMode,
+    agentConfigured: !!agentCfg,
+    orderCapability: agentCfg?.enabledCapabilities
+      ? (agentCfg.enabledCapabilities as string[]).includes("order")
+      : false,
+    rateLimitPerMinute: agentCfg?.rateLimitPerMinute ?? 60,
+    requireCartConfirmation: agentCfg?.requireCartConfirmation ?? false,
+    maxOrderValueCents: agentCfg?.maxOrderValueCents ?? null,
+  };
+
+  const readyToActivate = checks.hasApiKey && checks.hasSlug && checks.agentConfigured;
+
+  successResponse(res, {
+    checks,
+    readyToActivate,
+    catalogEndpoint: merchant.slug ? `/api/v1/merchants/${merchant.slug}/catalog` : null,
+    message: readyToActivate
+      ? "All checks passed. Call POST /activate to go live."
+      : "Some configuration is missing. Review the checks above.",
+  });
+});
+
+router.post("/activate", requireAuth, async (req: Request, res: Response) => {
+  const merchantId = req.merchantId!;
+
+  const [merchant] = await db
+    .select()
+    .from(merchantsTable)
+    .where(eq(merchantsTable.id, merchantId))
+    .limit(1);
+
+  if (!merchant) {
+    errorResponse(res, "Merchant not found", "NOT_FOUND", 404);
+    return;
+  }
+
+  if (!merchant.apiKey) {
+    errorResponse(res, "Generate an API key before activating", "PRECONDITION_FAILED", 400);
+    return;
+  }
+
+  if (!merchant.slug) {
+    errorResponse(res, "Set a merchant slug before activating", "PRECONDITION_FAILED", 400);
+    return;
+  }
+
+  const [updated] = await db
+    .update(merchantsTable)
+    .set({ isLive: true, sandboxMode: false, onboardingStatus: "complete", updatedAt: new Date() })
+    .where(eq(merchantsTable.id, merchantId))
+    .returning({
+      isLive: merchantsTable.isLive,
+      sandboxMode: merchantsTable.sandboxMode,
+      onboardingStatus: merchantsTable.onboardingStatus,
+      slug: merchantsTable.slug,
+    });
+
+  successResponse(res, {
+    activated: true,
+    isLive: updated.isLive,
+    sandboxMode: updated.sandboxMode,
+    slug: updated.slug,
+    message: `Merchant is now live. Agents can reach your catalog at /api/v1/merchants/${updated.slug}/catalog`,
+  });
+});
+
 router.post("/agent-config/review", requireAuth, async (req: Request, res: Response) => {
   const merchantId = req.merchantId!;
 

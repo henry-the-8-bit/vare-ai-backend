@@ -300,7 +300,7 @@ async function createMagentoOrder(
   }
 
   await connector.setGuestShipping(guestCartId, customerEmail, shippingAddress, shippingMethod);
-  const orderId = await connector.placeGuestOrder(guestCartId, paymentMethod);
+  const orderId = await connector.placeGuestOrder(guestCartId, paymentMethod, { source: "vare_ai" });
 
   return { orderId: String(orderId) };
 }
