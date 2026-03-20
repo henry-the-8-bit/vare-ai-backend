@@ -306,7 +306,9 @@ router.get("/catalog/:sku", requireAgentAuth, async (req: Request, res: Response
 });
 
 router.get("/inventory/:sku", requireAgentAuth, async (req: Request, res: Response) => {
+  const startTime = Date.now();
   const merchantId = req.merchantId!;
+  const agentPlatform = req.agentPlatform ?? "api";
   const sku = getParam(req, "sku");
 
   if (!sku) {
@@ -315,6 +317,31 @@ router.get("/inventory/:sku", requireAgentAuth, async (req: Request, res: Respon
   }
 
   const probeResult = await probeSingleSku(merchantId, sku);
+  const responseTimeMs = Date.now() - startTime;
+
+  await Promise.all([
+    db.insert(agentQueriesTable).values({
+      merchantId,
+      agentPlatform,
+      queryText: sku,
+      matchedSkus: probeResult.isInStock !== null ? [sku] : [],
+      resultCount: probeResult.isInStock !== null ? 1 : 0,
+      wasMatched: probeResult.isInStock !== null,
+      intentCluster: "inventory_probe",
+      sessionId: req.headers["x-session-id"] as string | undefined ?? null,
+      responseTimeMs,
+    }),
+    db.insert(transactionEventsTable).values({
+      merchantId,
+      agentPlatform,
+      sessionId: req.headers["x-session-id"] as string | undefined ?? null,
+      sku,
+      eventType: "inventory_probe",
+      status: probeResult.error ? "error" : "success",
+      durationMs: responseTimeMs,
+      metadata: { sku, source: probeResult.source, cached: probeResult.cached, isInStock: probeResult.isInStock, quantity: probeResult.quantity },
+    }),
+  ]).catch(() => {});
 
   successResponse(res, {
     sku,

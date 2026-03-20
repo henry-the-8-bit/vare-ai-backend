@@ -111,12 +111,6 @@ router.post("/checkout", requireAgentAuth, async (req: Request, res: Response) =
 
   const { cartId, customerEmail, shippingMethod, paymentMethod, shippingAddress, isTestOrder } = parsed.data;
 
-  const [agentCfg] = await db
-    .select({ testOrderEnabled: agentConfigsTable.testOrderEnabled })
-    .from(agentConfigsTable)
-    .where(eq(agentConfigsTable.merchantId, merchantId))
-    .limit(1);
-
   const result = await injectOrder(merchantId, cartId, {
     agentPlatform,
     sessionId: req.headers["x-session-id"] as string | undefined,
@@ -124,7 +118,7 @@ router.post("/checkout", requireAgentAuth, async (req: Request, res: Response) =
     shippingMethod,
     paymentMethod,
     shippingAddress,
-    isTestOrder: isTestOrder ?? agentCfg?.testOrderEnabled ?? true,
+    isTestOrder: isTestOrder ?? false,
   });
 
   const statusCode = result.status === "failed" ? 500 : 201;
