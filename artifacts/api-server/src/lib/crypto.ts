@@ -33,7 +33,10 @@ export function decrypt(ciphertext: string): string {
 }
 
 export function generateApiKey(prefix: "vare_live_sk" | "vare_test_sk" = "vare_live_sk"): string {
-  const secret = process.env["VARE_API_SECRET"] ?? "default_secret_change_me";
+  const secret = process.env["VARE_API_SECRET"];
+  if (!secret) {
+    throw new Error("VARE_API_SECRET environment variable is not set");
+  }
   const random = crypto.randomBytes(24).toString("hex");
   const hmac = crypto.createHmac("sha256", secret).update(random).digest("hex").slice(0, 16);
   return `${prefix}_${random}${hmac}`;

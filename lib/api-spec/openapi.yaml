@@ -3,13 +3,254 @@ info:
   # Do not change the title, if the title changes, the import paths will be broken
   title: Api
   version: 0.1.0
-  description: API specification
+  description: Vare AI Backend API
 servers:
   - url: /api
     description: Base API path
 tags:
   - name: health
     description: Health operations
+  - name: onboarding
+    description: Merchant onboarding wizard endpoints
+  - name: test
+    description: Development and testing utilities
+
+components:
+  securitySchemes:
+    BearerAuth:
+      type: http
+      scheme: bearer
+      description: Merchant API key (vare_live_sk_... or vare_test_sk_...)
+
+  schemas:
+    HealthStatus:
+      type: object
+      properties:
+        status:
+          type: string
+      required:
+        - status
+
+    GeneratedAt:
+      type: object
+      properties:
+        generated_at:
+          type: string
+          format: date-time
+      required:
+        - generated_at
+
+    ErrorResponse:
+      type: object
+      properties:
+        error:
+          type: string
+        code:
+          type: string
+        details:
+          type: object
+      required:
+        - error
+        - code
+
+    Merchant:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        companyName:
+          type: string
+        contactFirstName:
+          type: string
+          nullable: true
+        contactLastName:
+          type: string
+          nullable: true
+        contactEmail:
+          type: string
+          format: email
+        contactPhone:
+          type: string
+          nullable: true
+        estimatedSkuCount:
+          type: string
+          nullable: true
+        primaryVertical:
+          type: string
+          nullable: true
+        magentoVersion:
+          type: string
+          nullable: true
+        hostingEnvironment:
+          type: string
+          nullable: true
+        erpSystem:
+          type: string
+          nullable: true
+        pimSystem:
+          type: string
+          nullable: true
+        complexityScore:
+          type: integer
+          minimum: 0
+          maximum: 4
+        onboardingPhase:
+          type: integer
+          minimum: 1
+          maximum: 10
+        onboardingStatus:
+          type: string
+          enum: [in_progress, completed, cancelled]
+        apiKey:
+          type: string
+          nullable: true
+        sandboxMode:
+          type: boolean
+        isLive:
+          type: boolean
+        createdAt:
+          type: string
+          format: date-time
+          nullable: true
+        updatedAt:
+          type: string
+          format: date-time
+          nullable: true
+      required:
+        - id
+        - companyName
+        - contactEmail
+        - complexityScore
+        - onboardingPhase
+        - onboardingStatus
+        - sandboxMode
+        - isLive
+
+    CreateMerchantRequest:
+      type: object
+      properties:
+        companyName:
+          type: string
+          minLength: 1
+        contactFirstName:
+          type: string
+        contactLastName:
+          type: string
+        contactEmail:
+          type: string
+          format: email
+        contactPhone:
+          type: string
+        estimatedSkuCount:
+          type: string
+        primaryVertical:
+          type: string
+        magentoVersion:
+          type: string
+        hostingEnvironment:
+          type: string
+        erpSystem:
+          type: string
+        pimSystem:
+          type: string
+        sandboxMode:
+          type: boolean
+          default: true
+      required:
+        - companyName
+        - contactEmail
+
+    UpdateMerchantRequest:
+      type: object
+      properties:
+        companyName:
+          type: string
+        contactFirstName:
+          type: string
+        contactLastName:
+          type: string
+        contactEmail:
+          type: string
+          format: email
+        contactPhone:
+          type: string
+        estimatedSkuCount:
+          type: string
+        primaryVertical:
+          type: string
+        magentoVersion:
+          type: string
+        hostingEnvironment:
+          type: string
+        erpSystem:
+          type: string
+        pimSystem:
+          type: string
+        sandboxMode:
+          type: boolean
+
+    ComplexityResponse:
+      type: object
+      properties:
+        merchantId:
+          type: string
+          format: uuid
+        complexityScore:
+          type: integer
+          minimum: 0
+          maximum: 4
+        label:
+          type: string
+          enum: [Simple, Standard, Moderate, Complex, Enterprise]
+        factors:
+          type: object
+          properties:
+            hasEnterpriseEdition:
+              type: boolean
+              nullable: true
+            hasErp:
+              type: boolean
+            hasPim:
+              type: boolean
+            largeSkuCount:
+              type: boolean
+      required:
+        - merchantId
+        - complexityScore
+        - label
+        - factors
+
+    GenerateKeyResponse:
+      type: object
+      properties:
+        apiKey:
+          type: string
+          nullable: true
+        mode:
+          type: string
+          enum: [live, test]
+        message:
+          type: string
+      required:
+        - mode
+        - message
+
+    SystemHealthResponse:
+      type: object
+      properties:
+        status:
+          type: string
+        checks:
+          type: object
+        timestamp:
+          type: string
+          format: date-time
+      required:
+        - status
+        - checks
+        - timestamp
+
 paths:
   /healthz:
     get:
@@ -23,14 +264,240 @@ paths:
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/HealthStatus"
-components:
-  schemas:
-    HealthStatus:
-      type: object
-      properties:
-        status:
-          type: string
-      required:
-        - status
+                type: object
+                properties:
+                  data:
+                    $ref: "#/components/schemas/HealthStatus"
+                  generated_at:
+                    type: string
+                    format: date-time
+                required:
+                  - data
+                  - generated_at
 
+  /onboarding/merchant:
+    post:
+      operationId: createMerchant
+      tags: [onboarding]
+      summary: Create merchant profile (Phase 1)
+      description: Creates a new merchant workspace and returns an API key.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateMerchantRequest"
+      responses:
+        "201":
+          description: Merchant created
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    $ref: "#/components/schemas/Merchant"
+                  generated_at:
+                    type: string
+                    format: date-time
+        "400":
+          description: Validation error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /onboarding/merchant/{id}:
+    get:
+      operationId: getMerchant
+      tags: [onboarding]
+      summary: Get merchant profile
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: Merchant profile
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    $ref: "#/components/schemas/Merchant"
+                  generated_at:
+                    type: string
+                    format: date-time
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "404":
+          description: Not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+    patch:
+      operationId: updateMerchant
+      tags: [onboarding]
+      summary: Update merchant profile
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateMerchantRequest"
+      responses:
+        "200":
+          description: Updated merchant
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    $ref: "#/components/schemas/Merchant"
+                  generated_at:
+                    type: string
+                    format: date-time
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /onboarding/merchant/{id}/complexity:
+    get:
+      operationId: getMerchantComplexity
+      tags: [onboarding]
+      summary: Get computed complexity score
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: Complexity score breakdown
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    $ref: "#/components/schemas/ComplexityResponse"
+                  generated_at:
+                    type: string
+                    format: date-time
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /onboarding/agent-config/generate-key:
+    post:
+      operationId: generateApiKey
+      tags: [onboarding]
+      summary: Generate a new API key
+      security:
+        - BearerAuth: []
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                mode:
+                  type: string
+                  enum: [live, test]
+                  default: test
+      responses:
+        "200":
+          description: New API key
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    $ref: "#/components/schemas/GenerateKeyResponse"
+                  generated_at:
+                    type: string
+                    format: date-time
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /test/health:
+    post:
+      operationId: systemHealthCheck
+      tags: [test]
+      summary: Full system health check (DB + auth + env)
+      security:
+        - BearerAuth: []
+      responses:
+        "200":
+          description: Health check results
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    $ref: "#/components/schemas/SystemHealthResponse"
+                  generated_at:
+                    type: string
+                    format: date-time
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "503":
+          description: Service unavailable
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"

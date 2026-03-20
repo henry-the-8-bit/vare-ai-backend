@@ -5,7 +5,9 @@
  * Vare AI Backend API
  * OpenAPI spec version: 0.1.0
  */
+import type { Merchant } from "./merchant";
 
-export interface HealthStatus {
-  status: string;
-}
+export type CreateMerchant201 = {
+  data?: Merchant;
+  generated_at?: Date;
+};
