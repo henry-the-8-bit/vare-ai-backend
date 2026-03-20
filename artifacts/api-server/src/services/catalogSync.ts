@@ -224,6 +224,7 @@ export class CatalogSyncService {
       status: config.status,
       visibility: config.visibility,
       categoryIds: config.categoryIds,
+      attributes: config.attributes,
     };
 
     activeJobs.set(job.id, { paused: false, cancelled: false });

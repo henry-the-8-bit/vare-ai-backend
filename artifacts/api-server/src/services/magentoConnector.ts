@@ -216,6 +216,14 @@ export class MagentoConnector {
       filterIdx++;
     }
 
+    if (filters.attributes && filters.attributes.length > 0) {
+      params.set("fields", [
+        "items[id,sku,name,type_id,status,visibility,price,created_at,updated_at,media_gallery_entries,extension_attributes",
+        ...filters.attributes.map((a) => `custom_attributes[attribute_code=${a}]`),
+        "],total_count",
+      ].join(","));
+    }
+
     const url = `${this.storeUrl}/rest/V1/products?${params.toString()}`;
     const response = await this.fetchWithTimeout(url, { headers: this.buildHeaders() });
 
@@ -349,6 +357,7 @@ export interface SyncFilters {
   visibility?: string[];
   categoryIds?: number[];
   updatedSince?: string;
+  attributes?: string[];
 }
 
 interface StoreConfig {

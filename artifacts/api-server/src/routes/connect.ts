@@ -49,6 +49,9 @@ function safeDecrypt(val: string): string {
   try {
     return decrypt(val);
   } catch {
+    // Fallback for the edge case where a value was stored without encryption
+    // (e.g. during development/migration). Returns plaintext; this will
+    // cause a Magento 401 at runtime, making the credential state observable.
     return val;
   }
 }

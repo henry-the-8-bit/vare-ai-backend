@@ -62,6 +62,11 @@ router.post("/sync/start", requireAuth, async (req: Request, res: Response) => {
     return;
   }
 
+  if (conn.connectionStatus !== "connected") {
+    errorResponse(res, "Magento connection is not verified. Run /connect/test first.", "CONNECTION_NOT_VERIFIED", 400);
+    return;
+  }
+
   const syncType = req.body?.type === "delta" ? "delta" : "full";
   const config = (conn.syncConfig as Record<string, unknown> | null) ?? { productTypes: ["simple", "configurable"], status: ["1"] };
 
