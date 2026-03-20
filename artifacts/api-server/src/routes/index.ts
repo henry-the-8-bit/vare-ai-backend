@@ -11,6 +11,12 @@ import fitmentRouter from "./fitment.js";
 import probeRouter from "./probe.js";
 import gatewayRouter from "./gateway.js";
 import v1Router from "./v1/index.js";
+import metricsRouter from "./metrics.js";
+import feedsRouter from "./feeds.js";
+import insightsRouter from "./insights.js";
+import transactionsRouter from "./transactions.js";
+import botDefenseRouter from "./botDefense.js";
+import seederRouter from "./seeder.js";
 
 const router: IRouter = Router();
 
@@ -25,6 +31,12 @@ router.use("/onboarding", fitmentRouter);
 router.use("/onboarding", probeRouter);
 router.use("/onboarding", gatewayRouter);
 router.use("/test", testRouter);
+router.use("/test", seederRouter);
 router.use("/v1", v1Router);
+router.use(metricsRouter);
+router.use(feedsRouter);
+router.use(insightsRouter);
+router.use(transactionsRouter);
+router.use(botDefenseRouter);
 
 export default router;

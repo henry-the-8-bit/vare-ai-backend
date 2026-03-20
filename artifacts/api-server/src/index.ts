@@ -1,5 +1,6 @@
 import app from "./app";
 import { logger } from "./lib/logger";
+import { startBackgroundJobs } from "./jobs/backgroundJobs.js";
 
 // Validate required environment variables at startup
 const requiredEnvVars = ["DATABASE_URL", "VARE_API_SECRET", "ENCRYPTION_KEY"];
@@ -25,4 +26,5 @@ if (Number.isNaN(port) || port <= 0) {
 
 app.listen(port, () => {
   logger.info({ port }, "Server listening");
+  startBackgroundJobs();
 });
