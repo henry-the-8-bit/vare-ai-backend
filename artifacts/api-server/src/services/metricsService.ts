@@ -147,7 +147,7 @@ export async function getKpis(merchantId: string, range: DateRange) {
   const pctChange = (current: number, prev: number) =>
     prev === 0 ? (current > 0 ? 100 : 0) : Math.round(((current - prev) / prev) * 1000) / 10;
 
-  const [ordersSparkRaw, revenueSparkRaw, platformRows] = await Promise.all([
+  const [ordersSparkRaw, revenueSparkRaw, queriesSparkRaw, aovSparkRaw, platformRows] = await Promise.all([
     db
       .select({
         date: sql<string>`to_char(created_at, 'YYYY-MM-DD')`,
@@ -181,6 +181,37 @@ export async function getKpis(merchantId: string, range: DateRange) {
       .orderBy(sql`to_char(created_at, 'YYYY-MM-DD')`),
     db
       .select({
+        date: sql<string>`to_char(created_at, 'YYYY-MM-DD')`,
+        value: sql<number>`count(*)`,
+      })
+      .from(agentQueriesTable)
+      .where(
+        and(
+          eq(agentQueriesTable.merchantId, merchantId),
+          gte(agentQueriesTable.createdAt, from),
+          lte(agentQueriesTable.createdAt, to),
+        ),
+      )
+      .groupBy(sql`to_char(created_at, 'YYYY-MM-DD')`)
+      .orderBy(sql`to_char(created_at, 'YYYY-MM-DD')`),
+    db
+      .select({
+        date: sql<string>`to_char(created_at, 'YYYY-MM-DD')`,
+        value: sql<number>`coalesce(avg(total_price::numeric), 0)`,
+      })
+      .from(agentOrdersTable)
+      .where(
+        and(
+          eq(agentOrdersTable.merchantId, merchantId),
+          gte(agentOrdersTable.createdAt, from),
+          lte(agentOrdersTable.createdAt, to),
+          sql`order_status NOT IN ('cancelled', 'failed')`,
+        ),
+      )
+      .groupBy(sql`to_char(created_at, 'YYYY-MM-DD')`)
+      .orderBy(sql`to_char(created_at, 'YYYY-MM-DD')`),
+    db
+      .select({
         platform: agentOrdersTable.agentPlatform,
         orders: sql<number>`count(*)`,
         revenue: sql<number>`coalesce(sum(total_price::numeric), 0)`,
@@ -199,6 +230,13 @@ export async function getKpis(merchantId: string, range: DateRange) {
       .limit(10),
   ]);
 
+  const conversionSparkRaw = queriesSparkRaw.map((q) => {
+    const oRow = ordersSparkRaw.find((o) => o.date === q.date);
+    const dailyQueries = Number(q.value);
+    const dailyOrders = Number(oRow?.value ?? 0);
+    return { date: q.date, value: dailyQueries > 0 ? Math.round((dailyOrders / dailyQueries) * 1000) / 10 : 0 };
+  });
+
   return {
     revenue: {
       value: Math.round(revenue * 100) / 100,
@@ -213,17 +251,17 @@ export async function getKpis(merchantId: string, range: DateRange) {
     queries: {
       value: queries,
       pctChange: pctChange(queries, prevQueries),
-      sparkline: buildSparkline([]),
+      sparkline: buildSparkline(queriesSparkRaw.map((r) => ({ date: r.date, value: Number(r.value) }))),
     },
     conversionRate: {
       value: Math.round(conversion * 10) / 10,
       pctChange: pctChange(conversion, prevConversion),
-      sparkline: buildSparkline([]),
+      sparkline: buildSparkline(conversionSparkRaw),
     },
     aov: {
       value: Math.round(aov * 100) / 100,
       pctChange: pctChange(aov, prevAov),
-      sparkline: buildSparkline([]),
+      sparkline: buildSparkline(aovSparkRaw.map((r) => ({ date: r.date, value: Math.round(Number(r.value) * 100) / 100 }))),
     },
     platforms: platformRows.map((r) => ({
       platform: r.platform ?? "unknown",

@@ -97,19 +97,26 @@ router.post("/seed-mock-data", async (req: Request, res: Response) => {
       merchantId = existingRows[0]!.id;
       apiKey = existingRows[0]!.apiKey!;
 
-      const [productCountRow] = await db
-        .select({ cnt: sql<number>`count(*)` })
-        .from(normalizedProductsTable)
-        .where(eq(normalizedProductsTable.merchantId, merchantId));
+      const [[pRow], [qRow], [oRow]] = await Promise.all([
+        db.select({ cnt: sql<number>`count(*)` }).from(normalizedProductsTable).where(eq(normalizedProductsTable.merchantId, merchantId)),
+        db.select({ cnt: sql<number>`count(*)` }).from(agentQueriesTable).where(eq(agentQueriesTable.merchantId, merchantId)),
+        db.select({ cnt: sql<number>`count(*)` }).from(agentOrdersTable).where(eq(agentOrdersTable.merchantId, merchantId)),
+      ]);
 
-      const existingCount = Number(productCountRow?.cnt ?? 0);
+      const existingProducts = Number(pRow?.cnt ?? 0);
+      const existingQueries = Number(qRow?.cnt ?? 0);
+      const existingOrders = Number(oRow?.cnt ?? 0);
+      const isFullySeeded =
+        existingProducts >= TOTAL_PRODUCTS &&
+        existingQueries >= QUERIES_PER_DAY * DAYS &&
+        existingOrders >= ORDERS_PER_DAY_MIN * DAYS;
 
-      if (existingCount >= TOTAL_PRODUCTS && !force) {
+      if (isFullySeeded && !force) {
         successResponse(res, {
           message: "Mock data already seeded. Pass force=true to re-seed.",
           merchantId,
           apiKey,
-          stats: { existingProducts: existingCount },
+          stats: { existingProducts, existingQueries, existingOrders },
         });
         return;
       }

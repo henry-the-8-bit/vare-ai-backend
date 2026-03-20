@@ -6,10 +6,23 @@ import {
   normalizedProductsTable,
   agentConfigsTable,
   inventoryTable,
+  probeConfigsTable,
 } from "@workspace/db/schema";
 import { eq, sql, and, lt } from "drizzle-orm";
 import { logger } from "../lib/logger.js";
 import { getOrGenerateInsights } from "../services/insightsService.js";
+
+const PROBE_FREQUENCY_HOURS: Record<string, number> = {
+  realtime: 0.25,
+  frequent: 1,
+  hourly: 1,
+  every_4h: 4,
+  every_6h: 6,
+  daily: 24,
+  cached: 24,
+};
+
+let lastProbeRunByMerchant: Map<string, number> = new Map();
 
 async function runHealthCheck() {
   try {
@@ -32,10 +45,9 @@ async function runHealthCheck() {
 }
 
 /**
- * Recomputes agent readiness scores for merchants that have pending normalization.
- * Updates normalized_products rows by recalculating a composite readiness score
- * based on available fields (title, price, category, images, fitment data).
- * Triggered on a 6h cadence as a post-normalization sweep.
+ * Recomputes agent_readiness_score for all normalized products where the score
+ * may be stale. Runs a SQL UPDATE to compute a composite score from available
+ * product fields. This effectively triggers a post-normalization readiness sweep.
  */
 async function runReadinessRecompute() {
   try {
@@ -46,7 +58,7 @@ async function runReadinessRecompute() {
       .limit(50);
 
     for (const merchant of merchants) {
-      const updated = await db.execute(sql`
+      const result = await db.execute(sql`
         UPDATE normalized_products
         SET agent_readiness_score = LEAST(100, (
           CASE WHEN product_title IS NOT NULL AND length(product_title) > 3 THEN 25 ELSE 0 END +
@@ -60,7 +72,7 @@ async function runReadinessRecompute() {
         WHERE merchant_id = ${merchant.id}
           AND normalization_status IN ('normalized', 'reviewed')
       `);
-      logger.info({ merchantId: merchant.id, rowCount: updated.rowCount }, "[readiness] Score recomputed");
+      logger.info({ merchantId: merchant.id, rowCount: result.rowCount }, "[readiness] Score recomputed");
     }
   } catch (err) {
     logger.error({ err }, "[readiness] Recompute failed");
@@ -68,9 +80,11 @@ async function runReadinessRecompute() {
 }
 
 /**
- * Queues inventory batch probe jobs for each live merchant based on their
- * configured rate limit per minute (higher rate limit → more SKUs probed per run).
- * Probes SKUs whose lastProbed timestamp is older than 24h.
+ * Inventory batch probe per config schedule.
+ * Each merchant may have a probe_configs row with a probeFrequency (e.g. "hourly", "every_4h", "daily").
+ * This job runs every 30 minutes and dispatches a probe job only for merchants whose configured
+ * probe interval has elapsed since their last probe run.
+ * Batch size is derived from the merchant's rateLimitPerMinute config.
  */
 async function runInventoryBatchProbe() {
   try {
@@ -80,19 +94,36 @@ async function runInventoryBatchProbe() {
       .where(eq(merchantsTable.isLive, true))
       .limit(50);
 
+    const now = Date.now();
+
     for (const merchant of merchants) {
-      const [config] = await db
+      const [probeConfig] = await db
+        .select({ probeFrequency: probeConfigsTable.probeFrequency })
+        .from(probeConfigsTable)
+        .where(eq(probeConfigsTable.merchantId, merchant.id))
+        .limit(1);
+
+      const freqKey = probeConfig?.probeFrequency ?? "every_4h";
+      const intervalHours = PROBE_FREQUENCY_HOURS[freqKey] ?? 4;
+      const intervalMs = intervalHours * 60 * 60 * 1000;
+
+      const lastRun = lastProbeRunByMerchant.get(merchant.id) ?? 0;
+      if (now - lastRun < intervalMs) {
+        continue;
+      }
+
+      const [agentConfig] = await db
         .select({ rateLimitPerMinute: agentConfigsTable.rateLimitPerMinute })
         .from(agentConfigsTable)
         .where(eq(agentConfigsTable.merchantId, merchant.id))
         .limit(1);
 
-      const batchSize = config?.rateLimitPerMinute
-        ? Math.min(config.rateLimitPerMinute * 60, 5000)
+      const batchSize = agentConfig?.rateLimitPerMinute
+        ? Math.min(agentConfig.rateLimitPerMinute * 60, 5000)
         : 1000;
 
       const staleThreshold = new Date();
-      staleThreshold.setHours(staleThreshold.getHours() - 24);
+      staleThreshold.setHours(staleThreshold.getHours() - intervalHours);
 
       const staleSkus = await db
         .select({ sku: inventoryTable.sku })
@@ -106,25 +137,24 @@ async function runInventoryBatchProbe() {
         .limit(batchSize);
 
       if (staleSkus.length === 0) {
-        logger.info({ merchantId: merchant.id }, "[inventory-probe] No stale SKUs to probe");
+        lastProbeRunByMerchant.set(merchant.id, now);
+        logger.info({ merchantId: merchant.id, freqKey }, "[inventory-probe] No stale SKUs to probe");
         continue;
       }
 
-      const [jobRecord] = await db
-        .insert(syncJobsTable)
-        .values({
-          merchantId: merchant.id,
-          jobType: "inventory_probe",
-          status: "queued",
-          totalRecords: staleSkus.length,
-          processedRecords: 0,
-          errorCount: 0,
-          startedAt: new Date(),
-        })
-        .returning({ id: syncJobsTable.id });
+      await db.insert(syncJobsTable).values({
+        merchantId: merchant.id,
+        jobType: "inventory_probe",
+        status: "queued",
+        totalRecords: staleSkus.length,
+        processedRecords: 0,
+        errorCount: 0,
+        startedAt: new Date(),
+      });
 
+      lastProbeRunByMerchant.set(merchant.id, now);
       logger.info(
-        { merchantId: merchant.id, skuCount: staleSkus.length, jobId: jobRecord?.id, batchSize },
+        { merchantId: merchant.id, skuCount: staleSkus.length, batchSize, freqKey, intervalHours },
         "[inventory-probe] Queued inventory probe job",
       );
     }
@@ -180,8 +210,8 @@ async function triggerDeltaSync() {
 
 export function startBackgroundJobs() {
   const FIVE_MINUTES = 5 * 60 * 1000;
+  const THIRTY_MINUTES = 30 * 60 * 1000;
   const SIX_HOURS = 6 * 60 * 60 * 1000;
-  const FOUR_HOURS = 4 * 60 * 60 * 1000;
   const TWENTY_FOUR_HOURS = 24 * 60 * 60 * 1000;
 
   setInterval(() => {
@@ -198,11 +228,11 @@ export function startBackgroundJobs() {
 
   setInterval(() => {
     runInventoryBatchProbe().catch((err) => logger.error({ err }, "[inventory-probe] Uncaught error"));
-  }, FOUR_HOURS);
+  }, THIRTY_MINUTES);
 
   setInterval(() => {
     runDailyInsights().catch((err) => logger.error({ err }, "[insights] Uncaught error"));
   }, TWENTY_FOUR_HOURS);
 
-  logger.info("Background jobs started: health-check (5m), readiness (6h), delta-sync (6h), inventory-probe (4h per config batch size), insights (24h)");
+  logger.info("Background jobs started: health-check (5m), readiness (6h), delta-sync (6h), inventory-probe (30m dispatch per merchant config schedule), insights (24h)");
 }
