@@ -1,4 +1,4 @@
-import { pgTable, uuid, varchar, integer, boolean, timestamp, index } from "drizzle-orm/pg-core";
+import { pgTable, uuid, varchar, integer, boolean, timestamp, index, unique } from "drizzle-orm/pg-core";
 import { merchantsTable } from "./merchants";
 
 export const inventoryTable = pgTable(
@@ -16,7 +16,10 @@ export const inventoryTable = pgTable(
     createdAt: timestamp("created_at").defaultNow(),
     updatedAt: timestamp("updated_at").defaultNow(),
   },
-  (t) => [index("idx_inventory_merchant_sku").on(t.merchantId, t.sku)],
+  (t) => [
+    index("idx_inventory_merchant_sku").on(t.merchantId, t.sku),
+    unique("uq_inventory_merchant_sku").on(t.merchantId, t.sku),
+  ],
 );
 
 export const probeConfigsTable = pgTable("probe_configs", {

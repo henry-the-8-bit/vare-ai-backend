@@ -31,23 +31,35 @@ workspace/
 │           │   └── crypto.ts  # AES-256-GCM encrypt/decrypt, generateApiKey (HMAC)
 │           ├── middlewares/
 │           │   └── auth.ts    # requireAuth — validates Bearer token, attaches merchantId
+│           ├── data/
+│           │   ├── colorMappings.ts    # Color alias → normalized name map + normalizeColor()
+│           │   ├── unitConversions.ts  # Measurement parsers for weight/dimension units
+│           │   └── automotiveRules.ts  # Attribute alias map, finish normalizations, edit-distance
 │           ├── services/
-│           │   ├── magentoConnector.ts  # MagentoConnector — HTTP client wrapping Magento REST API
-│           │   │                        # testConnection, fetchProducts (paginated), healthCheck
-│           │   └── catalogSync.ts       # CatalogSyncService — background batch sync, pause/cancel
+│           │   ├── magentoConnector.ts      # MagentoConnector — HTTP client wrapping Magento REST API
+│           │   ├── catalogSync.ts           # CatalogSyncService — background batch sync, pause/cancel
+│           │   ├── healthScanService.ts     # Attribute coverage heatmap, issue cards, readiness score
+│           │   ├── normalizationService.ts  # 3-layer pipeline: rules → LLM (claude-haiku-4-5) → score
+│           │   │                             # discoverAttributeMappings, discoverValueClusters, batch
+│           │   ├── fitmentService.ts        # Fitment assessment, LLM extraction from descriptions
+│           │   └── inventoryProbeService.ts # SKU-level inventory probe with cache + fallback logic
 │           └── routes/
-│               ├── index.ts        # Mounts all sub-routers at /api
-│               ├── health.ts       # GET /api/healthz
-│               ├── onboarding.ts   # POST/GET/PATCH /api/onboarding/merchant[/:id]
-│               │                   # GET /api/onboarding/merchant/:id/complexity
-│               ├── agentConfig.ts  # POST /api/onboarding/agent-config/generate-key
-│               ├── connect.ts      # POST/GET /api/onboarding/connect[/test|/health|/store-views]
-│               ├── sync.ts         # POST/GET /api/onboarding/sync[/configure|/start|/status|/...]
-│               └── testRoutes.ts   # GET /api/test/health
+│               ├── index.ts          # Mounts all sub-routers at /api
+│               ├── health.ts         # GET /api/healthz
+│               ├── onboarding.ts     # POST/GET/PATCH /api/onboarding/merchant[/:id]
+│               ├── agentConfig.ts    # POST /api/onboarding/agent-config/generate-key
+│               ├── connect.ts        # POST/GET /api/onboarding/connect[/test|/health|/store-views]
+│               ├── sync.ts           # POST/GET /api/onboarding/sync[/configure|/start|/status|/...]
+│               ├── healthScan.ts     # GET /api/onboarding/health-scan
+│               ├── normalization.ts  # GET/POST /api/onboarding/normalization/*
+│               ├── fitment.ts        # GET/POST /api/onboarding/fitment/*
+│               ├── probe.ts          # GET/POST /api/onboarding/probe/*
+│               └── testRoutes.ts     # GET /api/test/health
 ├── lib/
 │   ├── api-spec/             # OpenAPI spec + Orval codegen config
 │   ├── api-client-react/     # Generated React Query hooks
 │   ├── api-zod/              # Generated Zod schemas from OpenAPI
+│   ├── integrations-anthropic-ai/  # Anthropic AI integration (client + batchProcess)
 │   └── db/
 │       └── src/
 │           ├── index.ts       # DB pool + Drizzle instance
@@ -112,6 +124,26 @@ All protected endpoints require: `Authorization: Bearer <api_key>`
 | `GET` | `/api/onboarding/merchant/:id/complexity` | Yes | Get complexity score breakdown |
 | `POST` | `/api/onboarding/agent-config/generate-key` | Yes | Rotate API key |
 | `GET` | `/api/test/health` | No | Full system health check (DB + env vars) |
+
+### Phase 3 — Normalization Engine, Fitment & Inventory Probe
+| Method | Path | Auth | Description |
+|---|---|---|---|
+| `GET` | `/api/onboarding/health-scan` | Yes | Attribute coverage heatmap + issue cards |
+| `GET` | `/api/onboarding/normalization/preview` | Yes | Preview rules-based normalization (no DB write) |
+| `POST` | `/api/onboarding/normalization/run` | Yes | Start async batch normalization job |
+| `GET` | `/api/onboarding/normalization/status` | Yes | Get normalization job status |
+| `GET` | `/api/onboarding/normalization/attribute-mappings` | Yes | List discovered attribute mappings |
+| `POST` | `/api/onboarding/normalization/attribute-mappings/discover` | Yes | Auto-discover attribute mappings from catalog |
+| `PATCH` | `/api/onboarding/normalization/attribute-mappings/:id` | Yes | Update mapping (manual override) |
+| `GET` | `/api/onboarding/normalization/value-clusters/:mappingId` | Yes | List value normalization clusters |
+| `POST` | `/api/onboarding/normalization/value-clusters/:mappingId/discover` | Yes | Auto-cluster values for a mapping |
+| `PATCH` | `/api/onboarding/normalization/value-clusters/:mId/:cId` | Yes | Approve/reject/edit a value cluster |
+| `GET` | `/api/onboarding/fitment/assess` | Yes | Fitment coverage assessment |
+| `POST` | `/api/onboarding/fitment/extract` | Yes | LLM-extract fitment from descriptions |
+| `GET` | `/api/onboarding/probe/results` | Yes | List cached inventory probe results |
+| `POST` | `/api/onboarding/probe/batch` | Yes | Batch probe inventory for multiple SKUs |
+| `POST` | `/api/onboarding/probe/config` | Yes | Set probe config (TTL, fallback, thresholds) |
+| `GET` | `/api/onboarding/probe/:sku` | Yes | Probe single SKU inventory |
 
 ### Phase 2 — Magento Connection & Sync
 | Method | Path | Auth | Description |

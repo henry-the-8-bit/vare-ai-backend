@@ -64,6 +64,7 @@ export const normalizedProductsTable = pgTable(
   (t) => [
     index("idx_normalized_products_merchant").on(t.merchantId),
     index("idx_normalized_products_sku").on(t.merchantId, t.sku),
+    unique("uq_normalized_products_merchant_sku").on(t.merchantId, t.sku),
   ],
 );
 
