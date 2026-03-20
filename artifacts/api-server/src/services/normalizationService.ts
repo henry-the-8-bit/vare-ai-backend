@@ -6,13 +6,26 @@ import {
   valueNormalizationsTable,
   syncJobsTable,
 } from "@workspace/db/schema";
-import { eq, and, desc, count } from "drizzle-orm";
+import { eq, and, desc, count, inArray } from "drizzle-orm";
 import { anthropic } from "@workspace/integrations-anthropic-ai";
 import { batchProcess } from "@workspace/integrations-anthropic-ai/batch";
 import { normalizeColor } from "../data/colorMappings.js";
 import { parseMeasurement } from "../data/unitConversions.js";
 import { AUTOMOTIVE_ATTRIBUTE_MAP, FINISH_NORMALIZATIONS, stringSimilarity } from "../data/automotiveRules.js";
 import { logger } from "../lib/logger.js";
+
+const SNAKE_TO_CAMEL: Record<string, string> = {
+  product_title: "productTitle",
+  short_description: "shortDescription",
+  category_path: "categoryPath",
+  image_urls: "imageUrls",
+  weight_unit: "weightUnit",
+  custom_attributes: "customAttributes",
+};
+
+function toNormalizedFieldKey(targetAttr: string): string {
+  return SNAKE_TO_CAMEL[targetAttr] ?? targetAttr;
+}
 
 type RawProductRow = {
   id: string;
@@ -484,7 +497,10 @@ export async function runBatchNormalization(jobId: string, merchantId: string): 
       targetAttribute: attributeMappingsTable.targetAttribute,
     })
     .from(attributeMappingsTable)
-    .where(and(eq(attributeMappingsTable.merchantId, merchantId), eq(attributeMappingsTable.mappingStatus, "auto")));
+    .where(and(
+      eq(attributeMappingsTable.merchantId, merchantId),
+      inArray(attributeMappingsTable.mappingStatus, ["auto", "manual"]),
+    ));
 
   const attrMap = new Map<string, string>(
     approvedMappingRows
@@ -579,9 +595,10 @@ export async function runBatchNormalization(jobId: string, merchantId: string): 
           const valueMap = mappingId ? valueMapById.get(mappingId) : undefined;
           const normalizedVal = valueMap ? (valueMap.get(String(rawVal)) ?? String(rawVal)) : String(rawVal);
 
-          const target = targetAttr as keyof NormalizedFields;
-          if (merged[target] === undefined || merged[target] === null || merged[target] === "") {
-            (merged as unknown as Record<string, unknown>)[target] = normalizedVal;
+          const camelKey = toNormalizedFieldKey(targetAttr);
+          const mergedRecord = merged as unknown as Record<string, unknown>;
+          if (mergedRecord[camelKey] === undefined || mergedRecord[camelKey] === null || mergedRecord[camelKey] === "") {
+            mergedRecord[camelKey] = normalizedVal;
           }
         }
 
@@ -593,7 +610,8 @@ export async function runBatchNormalization(jobId: string, merchantId: string): 
             const mappingId = mappingIdBySourceAttr.get(sourceAttr);
             const valueMap = mappingId ? valueMapById.get(mappingId) : undefined;
             const normalizedVal = valueMap ? (valueMap.get(String(rawVal)) ?? String(rawVal)) : String(rawVal);
-            ca[targetAttr] = normalizedVal;
+            const camelKey = toNormalizedFieldKey(targetAttr);
+            ca[camelKey] = normalizedVal;
           }
         }
 
