@@ -5,7 +5,7 @@ import { eq, and, desc, gte, lte, sql } from "drizzle-orm";
 import { requireAuth } from "../middlewares/auth.js";
 import { successResponse, errorResponse, paginatedResponse } from "../lib/response.js";
 import { z } from "zod/v4";
-import { getDateBounds, type DateRange } from "../services/metricsService.js";
+import { getDateBounds, parseRange } from "../services/metricsService.js";
 
 const router: IRouter = Router();
 
@@ -20,7 +20,7 @@ const botDefenseSchema = z.object({
 
 router.get("/bot-defense/overview", requireAuth, async (req: Request, res: Response) => {
   const merchantId = req.merchantId!;
-  const range = (req.query["range"] as DateRange) ?? "30d";
+  const range = parseRange(req.query["range"]);
   const { from, to } = getDateBounds(range);
 
   const [totalQueriesRow, unmatchedRow] = await Promise.all([
@@ -59,7 +59,7 @@ router.get("/bot-defense/overview", requireAuth, async (req: Request, res: Respo
 
 router.get("/bot-defense/events", requireAuth, async (req: Request, res: Response) => {
   const merchantId = req.merchantId!;
-  const range = (req.query["range"] as DateRange) ?? "30d";
+  const range = parseRange(req.query["range"]);
   const { from, to } = getDateBounds(range);
   const page = Math.max(1, parseInt(String(req.query["page"] ?? "1"), 10));
   const limit = Math.min(100, Math.max(1, parseInt(String(req.query["limit"] ?? "20"), 10)));
@@ -98,7 +98,7 @@ router.get("/bot-defense/events", requireAuth, async (req: Request, res: Respons
 
 router.get("/bot-defense/suspicious-agents", requireAuth, async (req: Request, res: Response) => {
   const merchantId = req.merchantId!;
-  const range = (req.query["range"] as DateRange) ?? "30d";
+  const range = parseRange(req.query["range"]);
   const { from, to } = getDateBounds(range);
 
   const rows = await db

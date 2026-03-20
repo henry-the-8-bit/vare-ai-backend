@@ -4,7 +4,7 @@ import { transactionEventsTable } from "@workspace/db/schema";
 import { eq, and, desc, sql, ilike, or, gte, lte } from "drizzle-orm";
 import { requireAuth } from "../middlewares/auth.js";
 import { paginatedResponse } from "../lib/response.js";
-import { getDateBounds, type DateRange } from "../services/metricsService.js";
+import { getDateBounds, parseRange } from "../services/metricsService.js";
 
 const router: IRouter = Router();
 
@@ -16,7 +16,7 @@ router.get("/transactions", requireAuth, async (req: Request, res: Response) => 
   const search = req.query["search"] as string | undefined;
   const eventType = req.query["eventType"] as string | undefined;
   const status = req.query["status"] as string | undefined;
-  const range = ((req.query["range"] as string) ?? "30d") as DateRange;
+  const range = parseRange(req.query["range"]);
   const { from, to } = getDateBounds(range);
 
   const conditions = [

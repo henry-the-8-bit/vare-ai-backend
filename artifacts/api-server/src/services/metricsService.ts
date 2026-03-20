@@ -8,8 +8,16 @@ import {
   syncJobsTable,
 } from "@workspace/db/schema";
 import { eq, and, gte, lte, sql, desc, asc, count } from "drizzle-orm";
+import { z } from "zod/v4";
 
 export type DateRange = "today" | "7d" | "30d" | "90d" | "ytd";
+
+export const dateRangeSchema = z.enum(["today", "7d", "30d", "90d", "ytd"]);
+
+export function parseRange(raw: unknown): DateRange {
+  const result = dateRangeSchema.safeParse(raw);
+  return result.success ? result.data : "30d";
+}
 
 export function getDateBounds(range: DateRange): { from: Date; to: Date } {
   const now = new Date();
@@ -159,6 +167,7 @@ export async function getKpis(merchantId: string, range: DateRange) {
           eq(agentOrdersTable.merchantId, merchantId),
           gte(agentOrdersTable.createdAt, from),
           lte(agentOrdersTable.createdAt, to),
+          sql`order_status NOT IN ('cancelled', 'failed')`,
         ),
       )
       .groupBy(sql`to_char(created_at, 'YYYY-MM-DD')`)

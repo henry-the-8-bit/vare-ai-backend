@@ -121,7 +121,7 @@ router.post("/seed-mock-data", async (req: Request, res: Response) => {
         return;
       }
 
-      if (force) {
+      if (force || !isFullySeeded) {
         await Promise.all([
           db.delete(normalizedProductsTable).where(eq(normalizedProductsTable.merchantId, merchantId)),
           db.delete(agentQueriesTable).where(eq(agentQueriesTable.merchantId, merchantId)),
