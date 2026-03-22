@@ -22,6 +22,7 @@ export const merchantsTable = pgTable("merchants", {
   apiKey: varchar("api_key", { length: 255 }),
   sandboxMode: boolean("sandbox_mode").default(true),
   isLive: boolean("is_live").default(false),
+  sourceType: varchar("source_type", { length: 20 }).default("magento"),
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
 }, (t) => [

@@ -56,6 +56,8 @@ workspace/
 │               ├── normalization.ts  # GET/POST /api/onboarding/normalization/*
 │               ├── fitment.ts        # GET/POST /api/onboarding/fitment/*
 │               ├── probe.ts          # GET/POST /api/onboarding/probe/*
+│               ├── csv.ts            # CSV upload/mapping/import onboarding path (/api/onboarding/csv/*)
+│               ├── phase.ts          # GET /api/onboarding/phase — 10-phase checklist, sourceType-aware
 │               ├── testRoutes.ts     # GET /api/test/health, POST simulate-agent-query, simulate-order
 │               └── v1/
 │                   ├── index.ts      # Mounts catalog + orders under /api/v1/merchants/:slug

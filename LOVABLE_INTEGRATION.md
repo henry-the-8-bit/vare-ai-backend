@@ -121,6 +121,121 @@ All onboarding endpoints use `Authorization: Bearer <api_key>`.
 
 ---
 
+### CSV / Flat-File Catalog Onboarding Path
+
+Merchants who don't have Magento can upload a CSV instead. Set `sourceType = "csv"` automatically on first file upload. Phase tracking adapts: phases 2–6 map to CSV upload → column mapping → import instead of Magento connection → sync.
+
+**Recommended workflow:**
+1. `POST /api/onboarding/csv/upload` — upload the CSV file (multipart)
+2. Use returned `suggestions` to pre-fill the mapping UI (all auto-detected at high confidence)
+3. `POST /api/onboarding/csv/uploads/:id/mappings` — send confirmed mappings (must include `sku` and `name`)
+4. `POST /api/onboarding/csv/uploads/:id/import` — run import into the product catalog
+5. Continue from Phase 7 (normalization, agent config, go-live) same as Magento path
+
+| Method | Path | Description |
+|--------|------|-------------|
+| `GET` | `/api/onboarding/csv/fields` | List all Vare field targets (for mapping UI dropdowns) |
+| `POST` | `/api/onboarding/csv/upload` | Upload CSV file (multipart `field=file`). Returns `uploadId`, `headers`, `rowCount`, `suggestions` |
+| `GET` | `/api/onboarding/csv/uploads` | List all uploads for the authenticated merchant (paginated) |
+| `GET` | `/api/onboarding/csv/uploads/:id` | Upload detail — status, headers, current mappings, suggestions if not yet mapped |
+| `POST` | `/api/onboarding/csv/uploads/:id/mappings` | Confirm column mappings. Body: `{ mappings: [{ csvHeader, vareField }] }` |
+| `POST` | `/api/onboarding/csv/uploads/:id/import` | Run import — inserts/upserts into normalized_products. Returns `{ imported, errors }` |
+| `GET` | `/api/onboarding/csv/uploads/:id/errors` | Fetch per-row import errors (first 500 stored) |
+| `DELETE` | `/api/onboarding/csv/uploads/:id` | Delete upload (not allowed while import is running) |
+
+**`GET /api/onboarding/csv/fields` response:**
+```json
+{
+  "success": true,
+  "data": {
+    "fields": [
+      { "field": "sku",   "label": "SKU",          "required": true  },
+      { "field": "name",  "label": "Product Name",  "required": true  },
+      { "field": "brand", "label": "Brand",         "required": false },
+      ...
+      { "field": "skip",  "label": "Skip this column", "required": false }
+    ]
+  }
+}
+```
+
+**`POST /api/onboarding/csv/upload` request:**
+```
+Content-Type: multipart/form-data
+Field name: file
+Max size: 50 MB
+```
+
+**`POST /api/onboarding/csv/upload` response:**
+```json
+{
+  "success": true,
+  "data": {
+    "uploadId": "uuid",
+    "headers": ["SKU", "Product Name", "Brand", "Price"],
+    "rowCount": 4200,
+    "suggestions": [
+      { "csvHeader": "SKU",          "vareField": "sku",   "confidence": "high" },
+      { "csvHeader": "Product Name", "vareField": "name",  "confidence": "high" },
+      { "csvHeader": "Brand",        "vareField": "brand", "confidence": "high" },
+      { "csvHeader": "Price",        "vareField": "price", "confidence": "high" }
+    ]
+  }
+}
+```
+
+**Confidence levels:**
+- `high` — header matched a known alias (auto-fill the dropdown)
+- `low` — no alias match (show empty dropdown, user must select)
+
+**`POST /api/onboarding/csv/uploads/:id/mappings` body:**
+```json
+{
+  "mappings": [
+    { "csvHeader": "SKU",          "vareField": "sku"   },
+    { "csvHeader": "Product Name", "vareField": "name"  },
+    { "csvHeader": "Brand",        "vareField": "brand" },
+    { "csvHeader": "Notes",        "vareField": null    }
+  ]
+}
+```
+`vareField: null` skips the column. `"sku"` and `"name"` are required — validation returns 400 if missing.
+
+**Upload status values:**
+| Status | Meaning |
+|--------|---------|
+| `pending_mapping` | Uploaded, awaiting column mapping confirmation |
+| `mapped` | Mappings confirmed, ready to import |
+| `importing` | Import running |
+| `completed` | Import finished |
+| `failed` | All rows errored |
+
+**Phase response when `sourceType = "csv"`:**
+```json
+{
+  "currentPhase": 6,
+  "totalPhases": 10,
+  "label": "Catalog Imported",
+  "percentComplete": 60,
+  "sourceType": "csv",
+  "nextPhase": 7,
+  "nextLabel": "Products Normalized",
+  "nextAction": "POST /api/onboarding/normalization/run",
+  "checklist": [
+    { "phase": 1, "label": "Merchant Profile",  "complete": true  },
+    { "phase": 2, "label": "CSV Uploaded",      "complete": true  },
+    { "phase": 3, "label": "Columns Mapped",    "complete": true  },
+    { "phase": 4, "label": "Ready to Import",   "complete": true  },
+    { "phase": 5, "label": "Import Configured", "complete": true  },
+    { "phase": 6, "label": "Catalog Imported",  "complete": true  },
+    { "phase": 7, "label": "Products Normalized","complete": false, "nextAction": "POST /api/onboarding/normalization/run" },
+    ...
+  ]
+}
+```
+
+---
+
 ### Dashboard — Metrics & Analytics
 
 All accept `?range=` (default `30d`).
