@@ -115,8 +115,8 @@ All onboarding endpoints use `Authorization: Bearer <api_key>`.
 | `PATCH` | `/api/onboarding/agent-config` | Update agent config (rate limits, capabilities) |
 | `POST` | `/api/onboarding/agent-config/set-slug` | Set the merchant URL slug |
 | `POST` | `/api/onboarding/agent-config/generate-key` | Rotate API key (live or test mode) |
-| `POST` | `/api/onboarding/agent-config/review` | Pre-activation checklist |
-| `POST` | `/api/onboarding/agent-config/activate` | Go live — flip merchant to active |
+| `GET` | `/api/onboarding/review` | Pre-activation checklist |
+| `POST` | `/api/onboarding/activate` | Go live — flip merchant to active |
 
 ---
 
