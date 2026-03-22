@@ -6,6 +6,7 @@ import { z } from "zod/v4";
 import { requireAuth } from "../middlewares/auth.js";
 import { successResponse, errorResponse } from "../lib/response.js";
 import { catalogSyncService } from "../services/catalogSync.js";
+import { advanceOnboardingPhase } from "../services/phaseService.js";
 
 const router: IRouter = Router();
 
@@ -46,6 +47,7 @@ router.post("/sync/configure", requireAuth, async (req: Request, res: Response) 
     configured: true,
     config: parsed.data,
   });
+  void advanceOnboardingPhase(merchantId);
 });
 
 router.post("/sync/start", requireAuth, async (req: Request, res: Response) => {
@@ -104,6 +106,7 @@ router.get("/sync/status", requireAuth, async (req: Request, res: Response) => {
     processedRecords: job.processedRecords,
     errorCount: job.errorCount,
   });
+  if (job.status === "completed") void advanceOnboardingPhase(merchantId);
 });
 
 router.post("/sync/pause", requireAuth, async (req: Request, res: Response) => {

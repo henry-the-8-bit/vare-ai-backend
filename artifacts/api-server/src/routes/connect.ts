@@ -11,6 +11,7 @@ import { requireAuth } from "../middlewares/auth.js";
 import { successResponse, errorResponse } from "../lib/response.js";
 import { encrypt, decrypt } from "../lib/crypto.js";
 import { MagentoConnector } from "../services/magentoConnector.js";
+import { advanceOnboardingPhase } from "../services/phaseService.js";
 
 const router: IRouter = Router();
 
@@ -104,6 +105,7 @@ router.post("/connect", requireAuth, async (req: Request, res: Response) => {
 
   const sanitized = { ...connection, accessToken: "[encrypted]", consumerKey: "[encrypted]", consumerSecret: "[encrypted]", accessTokenSecret: "[encrypted]" };
   successResponse(res, sanitized, 201);
+  void advanceOnboardingPhase(merchantId);
 });
 
 router.post("/connect/test", requireAuth, async (req: Request, res: Response) => {
@@ -167,6 +169,7 @@ router.post("/connect/test", requireAuth, async (req: Request, res: Response) =>
     error: result.error,
     errorCode: result.errorCode,
   });
+  if (result.success) void advanceOnboardingPhase(merchantId);
 });
 
 router.get("/connect/health", requireAuth, async (req: Request, res: Response) => {

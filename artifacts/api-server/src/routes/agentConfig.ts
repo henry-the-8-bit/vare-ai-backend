@@ -6,6 +6,7 @@ import { requireAuth } from "../middlewares/auth.js";
 import { successResponse, errorResponse } from "../lib/response.js";
 import { generateApiKey } from "../lib/crypto.js";
 import { z } from "zod/v4";
+import { advanceOnboardingPhase } from "../services/phaseService.js";
 
 const router: IRouter = Router();
 
@@ -103,6 +104,7 @@ router.patch("/agent-config", requireAuth, async (req: Request, res: Response) =
   }
 
   successResponse(res, config);
+  void advanceOnboardingPhase(merchantId);
 });
 
 const slugSchema = z.object({
@@ -137,6 +139,7 @@ router.post("/agent-config/set-slug", requireAuth, async (req: Request, res: Res
     .returning({ slug: merchantsTable.slug });
 
   successResponse(res, { slug: updated.slug });
+  void advanceOnboardingPhase(merchantId);
 });
 
 router.post("/agent-config/generate-key", requireAuth, async (req: Request, res: Response) => {

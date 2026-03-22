@@ -80,6 +80,7 @@ All onboarding endpoints use `Authorization: Bearer <api_key>`.
 | Method | Path | Description |
 |--------|------|-------------|
 | `POST` | `/api/onboarding/merchant` | Create merchant — returns `{ merchantId, apiKey }`. No auth required. |
+| `GET` | `/api/onboarding/phase` | Current wizard phase (1–10), percent complete, full checklist, and next action URL — automatically re-syncs `onboarding_phase` on every call |
 | `GET` | `/api/onboarding/merchant/:id` | Get merchant profile + onboarding phase |
 | `PATCH` | `/api/onboarding/merchant/:id` | Update merchant profile fields |
 | `GET` | `/api/onboarding/merchant/:id/complexity` | Complexity score (0–4: Simple → Enterprise) |

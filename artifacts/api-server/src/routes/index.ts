@@ -17,10 +17,12 @@ import insightsRouter from "./insights.js";
 import transactionsRouter from "./transactions.js";
 import botDefenseRouter from "./botDefense.js";
 import seederRouter from "./seeder.js";
+import phaseRouter from "./phase.js";
 
 const router: IRouter = Router();
 
 router.use(healthRouter);
+router.use("/onboarding", phaseRouter);
 router.use("/onboarding", onboardingRouter);
 router.use("/onboarding", agentConfigRouter);
 router.use("/onboarding", connectRouter);
