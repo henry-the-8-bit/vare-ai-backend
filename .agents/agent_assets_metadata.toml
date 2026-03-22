@@ -6,3 +6,9 @@ id = "nh0WQbloWW7Kt0JObNEFr"
 uri = "file://LOVABLE_INTEGRATION.md"
 type = "text"
 title = "Lovable Integration Guide — Vare AI Backend"
+
+[[outputs]]
+id = "Tf77xCctKcFfWilVGIhcd"
+uri = "file://LOVABLE_SPEC.md"
+type = "text"
+title = "Vare AI — Lovable Frontend Spec"
