@@ -62,6 +62,65 @@ router.post("/csv/upload", requireAuth, upload.single("file"), async (req: Reque
   }
 });
 
+const uploadJsonSchema = z.object({
+  filename: z.string().min(1).max(255),
+  content: z.string().min(1),
+  encoding: z.enum(["base64", "utf8"]).default("base64"),
+});
+
+router.post("/csv/upload-json", requireAuth, async (req: Request, res: Response) => {
+  const merchantId = req.merchantId!;
+
+  const parsed = uploadJsonSchema.safeParse(req.body);
+  if (!parsed.success) {
+    errorResponse(res, "Validation failed. Send { filename, content (base64 string), encoding? }", "VALIDATION_ERROR", 400, parsed.error.flatten());
+    return;
+  }
+
+  const { filename, content, encoding } = parsed.data;
+
+  if (!filename.toLowerCase().endsWith(".csv") && !filename.toLowerCase().endsWith(".txt")) {
+    errorResponse(res, "Only CSV files are accepted (.csv or .txt)", "INVALID_FILE_TYPE", 400);
+    return;
+  }
+
+  let buffer: Buffer;
+  try {
+    buffer = encoding === "base64"
+      ? Buffer.from(content, "base64")
+      : Buffer.from(content, "utf8");
+  } catch {
+    errorResponse(res, "Failed to decode file content. Ensure content is valid base64.", "DECODE_ERROR", 400);
+    return;
+  }
+
+  if (buffer.length === 0) {
+    errorResponse(res, "File content is empty", "EMPTY_FILE", 400);
+    return;
+  }
+
+  if (buffer.length > 50 * 1024 * 1024) {
+    errorResponse(res, "File exceeds 50 MB limit", "FILE_TOO_LARGE", 400);
+    return;
+  }
+
+  try {
+    const result = await parseAndSaveCsv(buffer, filename, merchantId);
+
+    await db
+      .update(merchantsTable)
+      .set({ sourceType: "csv", updatedAt: new Date() })
+      .where(eq(merchantsTable.id, merchantId));
+
+    void advanceOnboardingPhase(merchantId);
+
+    successResponse(res, result, 201);
+  } catch (err) {
+    const message = err instanceof Error ? err.message : "Failed to parse CSV";
+    errorResponse(res, message, "PARSE_ERROR", 400);
+  }
+});
+
 router.get("/csv/uploads", requireAuth, async (req: Request, res: Response) => {
   const merchantId = req.merchantId!;
   const page = Math.max(1, parseInt(String(req.query["page"] ?? "1"), 10));

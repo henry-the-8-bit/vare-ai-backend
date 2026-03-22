@@ -391,10 +391,30 @@ Full-width drop zone with dashed border. Icon + "Drag & drop your CSV here, or c
 
 ### Upload
 
+**Use the JSON endpoint** — do not use multipart `FormData` (it gets mangled by the Supabase Edge Function proxy layer).
+
+```js
+// In the file input onChange handler:
+const buffer = await file.arrayBuffer();
+const content = btoa(String.fromCharCode(...new Uint8Array(buffer)));
+
+const response = await api.post("/onboarding/csv/upload-json", {
+  filename: file.name,
+  content,           // base64 string
+  encoding: "base64",
+});
 ```
-POST /api/onboarding/csv/upload
-Content-Type: multipart/form-data
-Field: file = <File>
+
+```
+POST /api/onboarding/csv/upload-json
+Content-Type: application/json
+Authorization: Bearer <apiKey>
+
+{
+  "filename": "products.csv",
+  "content": "<base64 string>",
+  "encoding": "base64"
+}
 ```
 
 **Loading state**: Progress bar (indeterminate) + "Uploading…"
@@ -421,8 +441,8 @@ Field: file = <File>
 3. Auto-navigate → `/onboarding/csv/map` passing `uploadId`
 
 **Error states:**
-- File too large → inline error, allow re-select
-- Not a CSV → inline error
+- File too large (> 50 MB) → inline error, allow re-select
+- Not a `.csv` or `.txt` file → inline error
 - Server parse error → show error message from `error` field
 
 ### Previous Uploads

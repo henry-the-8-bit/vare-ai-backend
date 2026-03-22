@@ -126,7 +126,7 @@ All onboarding endpoints use `Authorization: Bearer <api_key>`.
 Merchants who don't have Magento can upload a CSV instead. Set `sourceType = "csv"` automatically on first file upload. Phase tracking adapts: phases 2–6 map to CSV upload → column mapping → import instead of Magento connection → sync.
 
 **Recommended workflow:**
-1. `POST /api/onboarding/csv/upload` — upload the CSV file (multipart)
+1. `POST /api/onboarding/csv/upload-json` — upload the CSV file as base64 JSON (**use this, not the multipart endpoint**)
 2. Use returned `suggestions` to pre-fill the mapping UI (all auto-detected at high confidence)
 3. `POST /api/onboarding/csv/uploads/:id/mappings` — send confirmed mappings (must include `sku` and `name`)
 4. `POST /api/onboarding/csv/uploads/:id/import` — run import into the product catalog
@@ -135,7 +135,8 @@ Merchants who don't have Magento can upload a CSV instead. Set `sourceType = "cs
 | Method | Path | Description |
 |--------|------|-------------|
 | `GET` | `/api/onboarding/csv/fields` | List all Vare field targets (for mapping UI dropdowns) |
-| `POST` | `/api/onboarding/csv/upload` | Upload CSV file (multipart `field=file`). Returns `uploadId`, `headers`, `rowCount`, `suggestions` |
+| `POST` | `/api/onboarding/csv/upload-json` | **Preferred.** Upload CSV as base64 JSON. Returns `uploadId`, `headers`, `rowCount`, `suggestions` |
+| `POST` | `/api/onboarding/csv/upload` | Alternative multipart upload (use only if calling directly from browser `fetch`, not via edge function proxy) |
 | `GET` | `/api/onboarding/csv/uploads` | List all uploads for the authenticated merchant (paginated) |
 | `GET` | `/api/onboarding/csv/uploads/:id` | Upload detail — status, headers, current mappings, suggestions if not yet mapped |
 | `POST` | `/api/onboarding/csv/uploads/:id/mappings` | Confirm column mappings. Body: `{ mappings: [{ csvHeader, vareField }] }` |
@@ -159,14 +160,34 @@ Merchants who don't have Magento can upload a CSV instead. Set `sourceType = "cs
 }
 ```
 
-**`POST /api/onboarding/csv/upload` request:**
-```
-Content-Type: multipart/form-data
-Field name: file
-Max size: 50 MB
+**`POST /api/onboarding/csv/upload-json` request (PREFERRED — works through any proxy):**
+```json
+{
+  "filename": "products.csv",
+  "content": "<base64-encoded file content>",
+  "encoding": "base64"
+}
 ```
 
-**`POST /api/onboarding/csv/upload` response:**
+Read the `File` object in JavaScript, convert to base64, then POST as JSON:
+```js
+const text = await file.text();
+const content = btoa(unescape(encodeURIComponent(text)));
+// OR for binary-safe encoding:
+const buffer = await file.arrayBuffer();
+const content = btoa(String.fromCharCode(...new Uint8Array(buffer)));
+
+await fetch(`${BASE_URL}/onboarding/csv/upload-json`, {
+  method: "POST",
+  headers: {
+    "Authorization": `Bearer ${apiKey}`,
+    "Content-Type": "application/json",
+  },
+  body: JSON.stringify({ filename: file.name, content, encoding: "base64" }),
+});
+```
+
+**`POST /api/onboarding/csv/upload-json` response (same as multipart):**
 ```json
 {
   "success": true,

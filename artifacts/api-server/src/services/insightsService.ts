@@ -70,7 +70,8 @@ Respond ONLY with a valid JSON array of insight objects. No markdown, no explana
       messages: [{ role: "user", content: prompt }],
     });
 
-    const raw = message.content[0]?.type === "text" ? message.content[0].text : "[]";
+    const rawText = message.content[0]?.type === "text" ? message.content[0].text : "[]";
+    const raw = rawText.replace(/^```(?:json)?\s*/i, "").replace(/\s*```\s*$/i, "").trim();
     const parsed = JSON.parse(raw) as Array<{
       insightType: string;
       badge: string;
