@@ -65,24 +65,22 @@ router.post("/csv/upload", requireAuth, upload.single("file"), async (req: Reque
 const uploadJsonSchema = z.object({
   filename: z.string().min(1).max(255),
   content: z.string().min(1),
-  encoding: z.enum(["base64", "utf8"]).default("base64"),
+  encoding: z.enum(["base64", "utf8"]).optional().default("base64"),
 });
 
 router.post("/csv/upload-json", requireAuth, async (req: Request, res: Response) => {
   const merchantId = req.merchantId!;
 
+  req.log.info({ bodyKeys: Object.keys(req.body ?? {}) }, "upload-json incoming");
+
   const parsed = uploadJsonSchema.safeParse(req.body);
   if (!parsed.success) {
+    req.log.warn({ body: req.body, errors: parsed.error.flatten() }, "upload-json validation failed");
     errorResponse(res, "Validation failed. Send { filename, content (base64 string), encoding? }", "VALIDATION_ERROR", 400, parsed.error.flatten());
     return;
   }
 
   const { filename, content, encoding } = parsed.data;
-
-  if (!filename.toLowerCase().endsWith(".csv") && !filename.toLowerCase().endsWith(".txt")) {
-    errorResponse(res, "Only CSV files are accepted (.csv or .txt)", "INVALID_FILE_TYPE", 400);
-    return;
-  }
 
   let buffer: Buffer;
   try {
