@@ -62,11 +62,17 @@ router.post("/csv/upload", requireAuth, upload.single("file"), async (req: Reque
   }
 });
 
-const uploadJsonSchema = z.object({
-  filename: z.string().min(1).max(255),
-  content: z.string().min(1),
-  encoding: z.enum(["base64", "utf8"]).optional().default("base64"),
-});
+const uploadJsonSchema = z.union([
+  z.object({
+    filename: z.string().min(1).max(255),
+    content: z.string().min(1),
+    encoding: z.enum(["base64", "utf8"]).optional().default("base64"),
+  }),
+  z.object({
+    filename: z.string().min(1).max(255),
+    downloadUrl: z.string().url(),
+  }),
+]);
 
 router.post("/csv/upload-json", requireAuth, async (req: Request, res: Response) => {
   const merchantId = req.merchantId!;
@@ -76,20 +82,40 @@ router.post("/csv/upload-json", requireAuth, async (req: Request, res: Response)
   const parsed = uploadJsonSchema.safeParse(req.body);
   if (!parsed.success) {
     req.log.warn({ body: req.body, errors: parsed.error.flatten() }, "upload-json validation failed");
-    errorResponse(res, "Validation failed. Send { filename, content (base64 string), encoding? }", "VALIDATION_ERROR", 400, parsed.error.flatten());
+    errorResponse(res, "Validation failed. Send { filename, content, encoding? } or { filename, downloadUrl }", "VALIDATION_ERROR", 400, parsed.error.flatten());
     return;
   }
 
-  const { filename, content, encoding } = parsed.data;
+  const { filename } = parsed.data;
 
   let buffer: Buffer;
-  try {
-    buffer = encoding === "base64"
-      ? Buffer.from(content, "base64")
-      : Buffer.from(content, "utf8");
-  } catch {
-    errorResponse(res, "Failed to decode file content. Ensure content is valid base64.", "DECODE_ERROR", 400);
-    return;
+
+  if ("downloadUrl" in parsed.data) {
+    // Download the file from the signed URL (Supabase Storage)
+    try {
+      const resp = await fetch(parsed.data.downloadUrl);
+      if (!resp.ok) {
+        errorResponse(res, `Failed to download file: HTTP ${resp.status}`, "DOWNLOAD_ERROR", 400);
+        return;
+      }
+      const arrayBuf = await resp.arrayBuffer();
+      buffer = Buffer.from(arrayBuf);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "Failed to download file";
+      errorResponse(res, message, "DOWNLOAD_ERROR", 400);
+      return;
+    }
+  } else {
+    // Legacy path: inline base64/utf8 content
+    const { content, encoding } = parsed.data;
+    try {
+      buffer = encoding === "base64"
+        ? Buffer.from(content, "base64")
+        : Buffer.from(content, "utf8");
+    } catch {
+      errorResponse(res, "Failed to decode file content. Ensure content is valid base64.", "DECODE_ERROR", 400);
+      return;
+    }
   }
 
   if (buffer.length === 0) {
