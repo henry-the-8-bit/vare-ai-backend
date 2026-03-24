@@ -101,6 +101,7 @@ export async function parseAndSaveCsv(
       skip_empty_lines: true,
       trim: true,
       bom: true,
+      relax_column_count: true,
     }) as Record<string, string>[];
   } catch (err) {
     throw new Error(`Failed to parse CSV: ${err instanceof Error ? err.message : "unknown error"}`);
