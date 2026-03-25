@@ -4,6 +4,7 @@ import { merchantsTable } from "./merchants";
 export const syncJobsTable = pgTable("sync_jobs", {
   id: uuid("id").primaryKey().defaultRandom(),
   merchantId: uuid("merchant_id").references(() => merchantsTable.id, { onDelete: "cascade" }),
+  feedId: uuid("feed_id"), // nullable, generic reference to feeds.id (no FK to avoid circular imports)
   jobType: varchar("job_type", { length: 50 }).notNull(),
   status: varchar("status", { length: 20 }).default("queued"),
   totalRecords: integer("total_records").default(0),

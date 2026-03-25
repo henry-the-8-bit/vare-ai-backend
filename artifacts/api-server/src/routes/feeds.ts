@@ -9,9 +9,11 @@ import {
   magentoConnectionsTable,
 } from "@workspace/db/schema";
 import { eq, and, desc, sql, gte, lte } from "drizzle-orm";
+import { z } from "zod/v4";
 import { requireAuth } from "../middlewares/auth.js";
 import { successResponse, paginatedResponse, errorResponse } from "../lib/response.js";
 import { getDateBounds, type DateRange } from "../services/metricsService.js";
+import { feedService } from "../services/feedService.js";
 
 const router: IRouter = Router();
 
@@ -339,6 +341,110 @@ router.get("/feeds/system-alerts", requireAuth, async (req: Request, res: Respon
     .limit(50);
 
   successResponse(res, alerts);
+});
+
+// ---------------------------------------------------------------------------
+// Feed CRUD & Actions
+// ---------------------------------------------------------------------------
+
+const createFeedSchema = z.object({
+  name: z.string().min(1).max(255),
+  type: z.enum(["live", "static"]),
+  source: z.string().min(1).max(50),
+  sourceConnectionId: z.string().uuid().optional(),
+  config: z.record(z.string(), z.unknown()).optional(),
+  syncSchedule: z.string().optional(),
+});
+
+const updateFeedSchema = createFeedSchema.partial();
+
+router.get("/feeds", requireAuth, async (req: Request, res: Response) => {
+  const merchantId = req.merchantId!;
+  const feeds = await feedService.listFeeds(merchantId);
+  successResponse(res, feeds);
+});
+
+router.post("/feeds", requireAuth, async (req: Request, res: Response) => {
+  const merchantId = req.merchantId!;
+
+  const parsed = createFeedSchema.safeParse(req.body);
+  if (!parsed.success) {
+    errorResponse(res, "Validation failed", "VALIDATION_ERROR", 400, parsed.error.flatten());
+    return;
+  }
+
+  const feed = await feedService.createFeed(merchantId, parsed.data);
+  successResponse(res, feed, 201);
+});
+
+router.put("/feeds/:id", requireAuth, async (req: Request, res: Response) => {
+  const merchantId = req.merchantId!;
+  const feedId = req.params["id"] as string;
+
+  const parsed = updateFeedSchema.safeParse(req.body);
+  if (!parsed.success) {
+    errorResponse(res, "Validation failed", "VALIDATION_ERROR", 400, parsed.error.flatten());
+    return;
+  }
+
+  const feed = await feedService.updateFeed(merchantId, feedId, parsed.data);
+  if (!feed) {
+    errorResponse(res, "Feed not found", "NOT_FOUND", 404);
+    return;
+  }
+
+  successResponse(res, feed);
+});
+
+router.delete("/feeds/:id", requireAuth, async (req: Request, res: Response) => {
+  const merchantId = req.merchantId!;
+  const feedId = req.params["id"] as string;
+
+  const deleted = await feedService.deleteFeed(merchantId, feedId);
+  if (!deleted) {
+    errorResponse(res, "Feed not found", "NOT_FOUND", 404);
+    return;
+  }
+
+  successResponse(res, { deleted: true });
+});
+
+router.post("/feeds/:id/sync", requireAuth, async (req: Request, res: Response) => {
+  const merchantId = req.merchantId!;
+  const feedId = req.params["id"] as string;
+
+  const result = await feedService.triggerSync(merchantId, feedId);
+  if (!result) {
+    errorResponse(res, "Feed not found", "NOT_FOUND", 404);
+    return;
+  }
+  if ("error" in result) {
+    errorResponse(res, result.error as string, "FEED_PAUSED", 400);
+    return;
+  }
+
+  successResponse(res, result, 202);
+});
+
+router.post("/feeds/:id/pause", requireAuth, async (req: Request, res: Response) => {
+  const merchantId = req.merchantId!;
+  const feedId = req.params["id"] as string;
+
+  const feed = await feedService.togglePause(merchantId, feedId);
+  if (!feed) {
+    errorResponse(res, "Feed not found", "NOT_FOUND", 404);
+    return;
+  }
+
+  successResponse(res, feed);
+});
+
+router.post("/feeds/:id/test", requireAuth, async (req: Request, res: Response) => {
+  const merchantId = req.merchantId!;
+  const feedId = req.params["id"] as string;
+
+  const result = await feedService.testConnection(merchantId, feedId);
+  successResponse(res, result);
 });
 
 export default router;
