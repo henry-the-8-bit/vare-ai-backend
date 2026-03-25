@@ -13,6 +13,7 @@ import { successResponse, errorResponse } from "../lib/response.js";
 import {
   runBatchNormalization,
   previewNormalization,
+  previewNormalizationRules,
   discoverAttributeMappings,
   discoverValueClusters,
 } from "../services/normalizationService.js";
@@ -26,8 +27,21 @@ function getParam(req: Request, key: string): string | undefined {
 
 router.post("/normalization/preview", requireAuth, async (req: Request, res: Response) => {
   const merchantId = req.merchantId!;
-  const limit = Math.min(50, Math.max(1, parseInt(String(req.body?.limit ?? req.query["limit"] ?? "10"))));
+  const format = String(req.body?.format ?? req.query["format"] ?? "legacy");
 
+  if (format === "rules") {
+    // New format: returns per-rule normalization cards with from→to changes
+    // Used by the Lovable SharedNormalization component
+    const rules = await previewNormalizationRules(merchantId);
+    successResponse(res, {
+      model: "gemini-2.5-flash",
+      rules,
+    });
+    return;
+  }
+
+  // Legacy format: raw/normalized/score tuples
+  const limit = Math.min(50, Math.max(1, parseInt(String(req.body?.limit ?? req.query["limit"] ?? "10"))));
   const previews = await previewNormalization(merchantId, limit);
   successResponse(res, { count: previews.length, previews });
 });

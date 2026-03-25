@@ -18,6 +18,7 @@ import {
   VARE_FIELDS,
 } from "../services/csvImportService.js";
 import { advanceOnboardingPhase } from "../services/phaseService.js";
+import { VERTICAL_FIELDS, isValidVertical, getRequiredFields, type VerticalId } from "../data/verticalFields.js";
 
 const router: IRouter = Router();
 
@@ -33,7 +34,16 @@ const upload = multer({
   },
 });
 
-router.get("/csv/fields", requireAuth, (_req: Request, res: Response) => {
+router.get("/csv/fields", requireAuth, (req: Request, res: Response) => {
+  const vertical = String(req.query["vertical"] ?? "");
+
+  // If a valid vertical is provided, return UCP-compliant vertical-specific fields
+  if (vertical && isValidVertical(vertical)) {
+    successResponse(res, { fields: VERTICAL_FIELDS[vertical], vertical, protocol: "ucp" });
+    return;
+  }
+
+  // Default: return the legacy flat field list for backwards compatibility
   successResponse(res, { fields: VARE_FIELDS });
 });
 

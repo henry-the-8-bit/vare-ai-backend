@@ -9,10 +9,55 @@ import {
 import { eq, and, desc, count, inArray } from "drizzle-orm";
 import { anthropic } from "@workspace/integrations-anthropic-ai";
 import { batchProcess } from "@workspace/integrations-anthropic-ai/batch";
-import { normalizeColor } from "../data/colorMappings.js";
+import { normalizeColor, COLOR_MAPPINGS } from "../data/colorMappings.js";
 import { parseMeasurement } from "../data/unitConversions.js";
 import { AUTOMOTIVE_ATTRIBUTE_MAP, FINISH_NORMALIZATIONS, stringSimilarity } from "../data/automotiveRules.js";
 import { logger } from "../lib/logger.js";
+
+// ── Gemini 2.5 Flash integration (Transformation Zone) ──────────
+// Falls back to Claude Haiku if the Google AI key is not configured.
+let geminiModel: { generateContent: (prompt: string) => Promise<{ response: { text: () => string } }> } | null = null;
+
+async function initGemini() {
+  if (geminiModel) return geminiModel;
+  const apiKey = process.env["AI_INTEGRATIONS_GOOGLE_API_KEY"];
+  if (!apiKey) return null;
+  try {
+    const { GoogleGenerativeAI } = await import("@google/generative-ai");
+    const client = new GoogleGenerativeAI(apiKey);
+    geminiModel = client.getGenerativeModel({ model: "gemini-2.5-flash" });
+    return geminiModel;
+  } catch {
+    logger.warn("Failed to initialize Gemini 2.5 Flash, falling back to Claude Haiku");
+    return null;
+  }
+}
+
+/**
+ * Generate text via Gemini 2.5 Flash (preferred for normalization) with
+ * automatic fallback to Claude Haiku if Google AI is unavailable.
+ */
+async function llmGenerate(prompt: string): Promise<string> {
+  const model = await initGemini();
+  if (model) {
+    const result = await model.generateContent(prompt);
+    return result.response.text();
+  }
+
+  // Fallback: Claude Haiku
+  const message = await anthropic.messages.create({
+    model: "claude-haiku-4-5",
+    max_tokens: 8192,
+    messages: [{ role: "user", content: prompt }],
+  });
+  const block = message.content[0];
+  if (block.type !== "text") return "";
+  return block.text;
+}
+
+function extractJson(text: string): string {
+  return text.trim().replace(/^```json\n?/, "").replace(/\n?```$/, "");
+}
 
 const SNAKE_TO_CAMEL: Record<string, string> = {
   product_title: "productTitle",
@@ -174,17 +219,8 @@ Please respond with a JSON object containing ONLY the fields that are missing or
 Respond ONLY with valid JSON, no markdown, no explanation.`;
 
   try {
-    const message = await anthropic.messages.create({
-      model: "claude-haiku-4-5",
-      max_tokens: 8192,
-      messages: [{ role: "user", content: prompt }],
-    });
-
-    const block = message.content[0];
-    if (block.type !== "text") return {};
-
-    const text = block.text.trim().replace(/^```json\n?/, "").replace(/\n?```$/, "");
-    const enriched = JSON.parse(text) as Partial<NormalizedFields>;
+    const text = await llmGenerate(prompt);
+    const enriched = JSON.parse(extractJson(text)) as Partial<NormalizedFields>;
     return enriched;
   } catch (err) {
     logger.warn({ sku: raw.sku, err }, "LLM enrichment failed for product");
@@ -214,17 +250,8 @@ Respond with a JSON object mapping attribute names to { "target": string|null, "
 Only return valid JSON, no markdown.`;
 
   try {
-    const message = await anthropic.messages.create({
-      model: "claude-haiku-4-5",
-      max_tokens: 8192,
-      messages: [{ role: "user", content: prompt }],
-    });
-
-    const block = message.content[0];
-    if (block.type !== "text") return {};
-
-    const text = block.text.trim().replace(/^```json\n?/, "").replace(/\n?```$/, "");
-    return JSON.parse(text) as Record<string, { target: string | null; confidence: number }>;
+    const text = await llmGenerate(prompt);
+    return JSON.parse(extractJson(text)) as Record<string, { target: string | null; confidence: number }>;
   } catch (err) {
     logger.warn({ err }, "LLM attribute disambiguation failed");
     return {};
@@ -355,17 +382,8 @@ For example: { "blk": "Black", "XL size": "XL", "made in usa": "USA" }
 Only return valid JSON, no markdown.`;
 
   try {
-    const message = await anthropic.messages.create({
-      model: "claude-haiku-4-5",
-      max_tokens: 8192,
-      messages: [{ role: "user", content: prompt }],
-    });
-
-    const block = message.content[0];
-    if (block.type !== "text") return {};
-
-    const text = block.text.trim().replace(/^```json\n?/, "").replace(/\n?```$/, "");
-    return JSON.parse(text) as Record<string, string>;
+    const text = await llmGenerate(prompt);
+    return JSON.parse(extractJson(text)) as Record<string, string>;
   } catch (err) {
     logger.warn({ err }, "LLM value normalization failed");
     return {};
@@ -698,6 +716,144 @@ export async function runBatchNormalization(jobId: string, merchantId: string): 
     completedAt,
     durationSeconds: Math.round((completedAt.getTime() - startTime.getTime()) / 1000),
   }).where(eq(syncJobsTable.id, jobId));
+}
+
+// ── Normalization rule preview (for UI rule cards) ───────────────
+// Returns the data contract the Lovable frontend expects:
+// { id, label, clusters, applied, changes: [{ from, to, count }] }
+
+export interface NormRuleChange {
+  from: string;
+  to: string;
+  count: number;
+}
+
+export interface NormRulePreview {
+  id: string;
+  label: string;
+  clusters: number;
+  applied: boolean;
+  changes: NormRuleChange[];
+}
+
+export async function previewNormalizationRules(merchantId: string): Promise<NormRulePreview[]> {
+  // Pull raw product sample to compute rule stats
+  const products = await db
+    .select({ rawData: rawProductsTable.rawData })
+    .from(rawProductsTable)
+    .where(eq(rawProductsTable.merchantId, merchantId))
+    .limit(2000);
+
+  const colorCounts: Record<string, Record<string, number>> = {};
+  const finishCounts: Record<string, Record<string, number>> = {};
+  const brandCounts: Record<string, number> = {};
+  const unitCounts: Record<string, Record<string, number>> = {};
+
+  for (const row of products) {
+    const data = (row.rawData ?? {}) as Record<string, unknown>;
+    const customAttrs: Record<string, unknown> = {};
+    const custom = data["custom_attributes"];
+    if (Array.isArray(custom)) {
+      for (const entry of custom as Array<Record<string, unknown>>) {
+        if (entry["attribute_code"] && entry["value"] !== undefined) {
+          customAttrs[String(entry["attribute_code"])] = entry["value"];
+        }
+      }
+    }
+    const all = { ...data, ...customAttrs };
+
+    // Color
+    const rawColor = String(all["color"] ?? all["colour"] ?? all["clr"] ?? "").trim();
+    if (rawColor) {
+      const normalized = normalizeColor(rawColor) ?? rawColor;
+      if (normalized.toLowerCase() !== rawColor.toLowerCase()) {
+        if (!colorCounts[rawColor]) colorCounts[rawColor] = {};
+        colorCounts[rawColor][normalized] = (colorCounts[rawColor][normalized] ?? 0) + 1;
+      }
+    }
+
+    // Finish
+    const rawFinish = String(all["finish"] ?? all["finish_type"] ?? all["surface_finish"] ?? "").trim();
+    if (rawFinish) {
+      const normalized = FINISH_NORMALIZATIONS[rawFinish.toLowerCase()] ?? rawFinish;
+      if (normalized.toLowerCase() !== rawFinish.toLowerCase()) {
+        if (!finishCounts[rawFinish]) finishCounts[rawFinish] = {};
+        finishCounts[rawFinish][normalized] = (finishCounts[rawFinish][normalized] ?? 0) + 1;
+      }
+    }
+
+    // Brand (track for cluster count)
+    const brand = String(all["brand"] ?? all["manufacturer"] ?? "").trim();
+    if (brand) brandCounts[brand] = (brandCounts[brand] ?? 0) + 1;
+
+    // Weight/unit
+    const rawWeight = String(all["weight"] ?? all["item_weight"] ?? all["wt"] ?? "").trim();
+    if (rawWeight) {
+      const parsed = parseMeasurement(rawWeight);
+      if (parsed && parsed.unit) {
+        const key = `${rawWeight} → ${parsed.value} ${parsed.unit}`;
+        if (!unitCounts[rawWeight]) unitCounts[rawWeight] = {};
+        unitCounts[rawWeight][`${parsed.value} ${parsed.unit}`] = (unitCounts[rawWeight][`${parsed.value} ${parsed.unit}`] ?? 0) + 1;
+      }
+    }
+  }
+
+  function toChanges(counts: Record<string, Record<string, number>>): NormRuleChange[] {
+    const changes: NormRuleChange[] = [];
+    for (const [from, targets] of Object.entries(counts)) {
+      for (const [to, count] of Object.entries(targets)) {
+        changes.push({ from, to, count });
+      }
+    }
+    return changes.sort((a, b) => b.count - a.count);
+  }
+
+  // Check if normalization has been applied
+  const [normJob] = await db
+    .select({ status: syncJobsTable.status })
+    .from(syncJobsTable)
+    .where(and(eq(syncJobsTable.merchantId, merchantId), eq(syncJobsTable.jobType, "normalization")))
+    .orderBy(desc(syncJobsTable.createdAt))
+    .limit(1);
+
+  const applied = normJob?.status === "completed";
+
+  const colorChanges = toChanges(colorCounts);
+  const finishChanges = toChanges(finishCounts);
+  const unitChanges = toChanges(unitCounts);
+
+  const rules: NormRulePreview[] = [
+    {
+      id: "color",
+      label: "Color Normalization",
+      clusters: new Set(colorChanges.map((c) => c.to)).size,
+      applied,
+      changes: colorChanges,
+    },
+    {
+      id: "finish",
+      label: "Finish Normalization",
+      clusters: new Set(finishChanges.map((c) => c.to)).size,
+      applied,
+      changes: finishChanges,
+    },
+    {
+      id: "brand",
+      label: "Brand Normalization",
+      clusters: new Set(Object.keys(brandCounts)).size,
+      applied,
+      changes: [], // Brand normalization requires LLM clustering
+    },
+    {
+      id: "unit",
+      label: "Unit Standardization",
+      clusters: new Set(unitChanges.map((c) => c.to)).size,
+      applied,
+      changes: unitChanges,
+    },
+  ];
+
+  return rules;
 }
 
 export async function previewNormalization(merchantId: string, limit = 10): Promise<Array<{ raw: Record<string, unknown>; normalized: NormalizedFields; score: number }>> {
