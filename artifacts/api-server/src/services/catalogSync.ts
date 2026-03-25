@@ -4,6 +4,7 @@ import {
   rawProductsTable,
   magentoConnectionsTable,
   merchantsTable,
+  feedsTable,
 } from "@workspace/db/schema";
 import { eq, and, desc } from "drizzle-orm";
 import { MagentoConnector, type SyncFilters } from "./magentoConnector.js";
@@ -65,11 +66,25 @@ async function updateJobProgress(
     .where(eq(syncJobsTable.id, jobId));
 }
 
+async function updateFeedSyncStatus(feedId: string | undefined, status: string, errorMessage?: string): Promise<void> {
+  if (!feedId) return;
+  await db
+    .update(feedsTable)
+    .set({
+      status,
+      errorMessage: errorMessage ?? null,
+      lastSyncAt: new Date(),
+      updatedAt: new Date(),
+    })
+    .where(eq(feedsTable.id, feedId));
+}
+
 async function runSyncBatches(
   jobId: string,
   merchantId: string,
   connector: MagentoConnector,
   filters: SyncFilters,
+  feedId?: string,
   pageSize = 100,
 ): Promise<void> {
   const ctrl = activeJobs.get(jobId) ?? { paused: false, cancelled: false };
@@ -95,6 +110,7 @@ async function runSyncBatches(
           errorCount: totalErrors,
           errorLog,
         });
+        await updateFeedSyncStatus(feedId, "active");
         return;
       }
 
@@ -123,6 +139,7 @@ async function runSyncBatches(
           completedAt: new Date(),
           durationSeconds: Math.round((Date.now() - startedAt.getTime()) / 1000),
         });
+        await updateFeedSyncStatus(feedId, "error", `Page ${page}: ${String(err)}`);
         return;
       }
 
@@ -202,17 +219,19 @@ async function runSyncBatches(
       completedAt,
       durationSeconds,
     });
+    await updateFeedSyncStatus(feedId, totalErrors > 0 ? "warning" : "active");
   } finally {
     activeJobs.delete(jobId);
   }
 }
 
 export class CatalogSyncService {
-  async startFullSync(merchantId: string, config: SyncConfig): Promise<SyncJobRecord> {
+  async startFullSync(merchantId: string, config: SyncConfig, feedId?: string): Promise<SyncJobRecord> {
     const [job] = await db
       .insert(syncJobsTable)
       .values({
         merchantId,
+        feedId: feedId ?? null,
         jobType: "catalog_full",
         status: "queued",
         config,
@@ -232,13 +251,14 @@ export class CatalogSyncService {
     setImmediate(async () => {
       try {
         const connector = await getConnector(merchantId);
-        await runSyncBatches(job.id, merchantId, connector, filters);
+        await runSyncBatches(job.id, merchantId, connector, filters, feedId);
       } catch (err) {
         logger.error({ jobId: job.id, err }, "Sync job failed to start");
         await updateJobProgress(job.id, {
           status: "failed",
           errorLog: [{ error: String(err), timestamp: new Date().toISOString() }],
         });
+        await updateFeedSyncStatus(feedId, "error", String(err));
         activeJobs.delete(job.id);
       }
     });
@@ -246,7 +266,7 @@ export class CatalogSyncService {
     return job;
   }
 
-  async startDeltaSync(merchantId: string): Promise<SyncJobRecord> {
+  async startDeltaSync(merchantId: string, feedId?: string): Promise<SyncJobRecord> {
     const [lastCompleted] = await db
       .select({ completedAt: syncJobsTable.completedAt })
       .from(syncJobsTable)
@@ -265,6 +285,7 @@ export class CatalogSyncService {
       .insert(syncJobsTable)
       .values({
         merchantId,
+        feedId: feedId ?? null,
         jobType: "catalog_delta",
         status: "queued",
         config: { updatedSince },
@@ -278,13 +299,14 @@ export class CatalogSyncService {
     setImmediate(async () => {
       try {
         const connector = await getConnector(merchantId);
-        await runSyncBatches(job.id, merchantId, connector, filters);
+        await runSyncBatches(job.id, merchantId, connector, filters, feedId);
       } catch (err) {
         logger.error({ jobId: job.id, err }, "Delta sync job failed to start");
         await updateJobProgress(job.id, {
           status: "failed",
           errorLog: [{ error: String(err), timestamp: new Date().toISOString() }],
         });
+        await updateFeedSyncStatus(feedId, "error", String(err));
         activeJobs.delete(job.id);
       }
     });
