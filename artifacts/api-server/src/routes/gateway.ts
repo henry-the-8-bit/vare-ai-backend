@@ -19,6 +19,14 @@ const configureSchema = z.object({
   testOrderEnabled: z.boolean().optional(),
   webhookUrl: z.string().url().optional().nullable(),
   enabledCapabilities: z.array(z.string()).optional(),
+  // Gateway feature toggles
+  orderDestination: z.enum(["platform", "erp", "webhook", "email"]).optional(),
+  defaultOrderStatus: z.enum(["processing", "pending", "complete", "on_hold"]).optional(),
+  tagOrders: z.boolean().optional(),
+  addOrderComment: z.boolean().optional(),
+  collectPlatformPayment: z.boolean().optional(),
+  applyShippingRules: z.boolean().optional(),
+  applyPromotionalDiscounts: z.boolean().optional(),
 });
 
 router.post("/gateway/configure", requireAuth, async (req: Request, res: Response) => {
@@ -51,6 +59,13 @@ router.post("/gateway/configure", requireAuth, async (req: Request, res: Respons
         ...(data.testOrderEnabled !== undefined && { testOrderEnabled: data.testOrderEnabled }),
         ...(data.webhookUrl !== undefined && { webhookUrl: data.webhookUrl }),
         ...(data.enabledCapabilities !== undefined && { enabledCapabilities: data.enabledCapabilities }),
+        ...(data.orderDestination !== undefined && { orderDestination: data.orderDestination }),
+        ...(data.defaultOrderStatus !== undefined && { defaultOrderStatus: data.defaultOrderStatus }),
+        ...(data.tagOrders !== undefined && { tagOrders: data.tagOrders }),
+        ...(data.addOrderComment !== undefined && { addOrderComment: data.addOrderComment }),
+        ...(data.collectPlatformPayment !== undefined && { collectPlatformPayment: data.collectPlatformPayment }),
+        ...(data.applyShippingRules !== undefined && { applyShippingRules: data.applyShippingRules }),
+        ...(data.applyPromotionalDiscounts !== undefined && { applyPromotionalDiscounts: data.applyPromotionalDiscounts }),
         updatedAt: new Date(),
       })
       .where(eq(agentConfigsTable.merchantId, merchantId))
@@ -69,11 +84,68 @@ router.post("/gateway/configure", requireAuth, async (req: Request, res: Respons
         testOrderEnabled: data.testOrderEnabled ?? true,
         webhookUrl: data.webhookUrl ?? null,
         enabledCapabilities: data.enabledCapabilities ?? null,
+        orderDestination: data.orderDestination ?? "platform",
+        defaultOrderStatus: data.defaultOrderStatus ?? "processing",
+        tagOrders: data.tagOrders ?? true,
+        addOrderComment: data.addOrderComment ?? true,
+        collectPlatformPayment: data.collectPlatformPayment ?? true,
+        applyShippingRules: data.applyShippingRules ?? true,
+        applyPromotionalDiscounts: data.applyPromotionalDiscounts ?? false,
       })
       .returning();
   }
 
   successResponse(res, config);
+});
+
+router.get("/gateway/settings", requireAuth, async (req: Request, res: Response) => {
+  const merchantId = req.merchantId!;
+
+  const [config] = await db
+    .select()
+    .from(agentConfigsTable)
+    .where(eq(agentConfigsTable.merchantId, merchantId))
+    .limit(1);
+
+  if (!config) {
+    // Return defaults when no config exists yet
+    successResponse(res, {
+      orderDestination: "platform",
+      defaultOrderStatus: "processing",
+      tagOrders: true,
+      addOrderComment: true,
+      collectPlatformPayment: true,
+      applyShippingRules: true,
+      applyPromotionalDiscounts: false,
+      requireCartConfirmation: false,
+      testOrderEnabled: true,
+      defaultShippingMethod: "flatrate_flatrate",
+      defaultPaymentMethod: "vare_ai",
+      rateLimitPerMinute: 60,
+      maxOrderValueCents: null,
+      webhookUrl: null,
+      enabledCapabilities: ["search", "cart", "checkout"],
+    });
+    return;
+  }
+
+  successResponse(res, {
+    orderDestination: config.orderDestination ?? "platform",
+    defaultOrderStatus: config.defaultOrderStatus ?? "processing",
+    tagOrders: config.tagOrders ?? true,
+    addOrderComment: config.addOrderComment ?? true,
+    collectPlatformPayment: config.collectPlatformPayment ?? true,
+    applyShippingRules: config.applyShippingRules ?? true,
+    applyPromotionalDiscounts: config.applyPromotionalDiscounts ?? false,
+    requireCartConfirmation: config.requireCartConfirmation ?? false,
+    testOrderEnabled: config.testOrderEnabled ?? true,
+    defaultShippingMethod: config.defaultShippingMethod ?? "flatrate_flatrate",
+    defaultPaymentMethod: config.defaultPaymentMethod ?? "vare_ai",
+    rateLimitPerMinute: config.rateLimitPerMinute ?? 60,
+    maxOrderValueCents: config.maxOrderValueCents ?? null,
+    webhookUrl: config.webhookUrl ?? null,
+    enabledCapabilities: config.enabledCapabilities ?? ["search", "cart", "checkout"],
+  });
 });
 
 const testOrderSchema = z.object({

@@ -79,6 +79,14 @@ export const agentConfigsTable = pgTable("agent_configs", {
   testOrderEnabled: boolean("test_order_enabled").default(true),
   webhookUrl: varchar("webhook_url", { length: 500 }),
   enabledCapabilities: jsonb("enabled_capabilities"),
+  // Gateway feature toggles
+  orderDestination: varchar("order_destination", { length: 50 }).default("platform"),
+  defaultOrderStatus: varchar("default_order_status", { length: 50 }).default("processing"),
+  tagOrders: boolean("tag_orders").default(true),
+  addOrderComment: boolean("add_order_comment").default(true),
+  collectPlatformPayment: boolean("collect_platform_payment").default(true),
+  applyShippingRules: boolean("apply_shipping_rules").default(true),
+  applyPromotionalDiscounts: boolean("apply_promotional_discounts").default(false),
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
 });

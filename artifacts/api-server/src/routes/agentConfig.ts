@@ -49,6 +49,14 @@ const agentConfigPatchSchema = z.object({
   testOrderEnabled: z.boolean().optional(),
   webhookUrl: z.string().url().optional().nullable(),
   enabledCapabilities: z.array(z.string()).optional(),
+  // Gateway feature toggles
+  orderDestination: z.enum(["platform", "erp", "webhook", "email"]).optional(),
+  defaultOrderStatus: z.enum(["processing", "pending", "complete", "on_hold"]).optional(),
+  tagOrders: z.boolean().optional(),
+  addOrderComment: z.boolean().optional(),
+  collectPlatformPayment: z.boolean().optional(),
+  applyShippingRules: z.boolean().optional(),
+  applyPromotionalDiscounts: z.boolean().optional(),
 });
 
 router.patch("/agent-config", requireAuth, async (req: Request, res: Response) => {
@@ -81,6 +89,13 @@ router.patch("/agent-config", requireAuth, async (req: Request, res: Response) =
         ...(data.testOrderEnabled !== undefined && { testOrderEnabled: data.testOrderEnabled }),
         ...(data.webhookUrl !== undefined && { webhookUrl: data.webhookUrl }),
         ...(data.enabledCapabilities !== undefined && { enabledCapabilities: data.enabledCapabilities }),
+        ...(data.orderDestination !== undefined && { orderDestination: data.orderDestination }),
+        ...(data.defaultOrderStatus !== undefined && { defaultOrderStatus: data.defaultOrderStatus }),
+        ...(data.tagOrders !== undefined && { tagOrders: data.tagOrders }),
+        ...(data.addOrderComment !== undefined && { addOrderComment: data.addOrderComment }),
+        ...(data.collectPlatformPayment !== undefined && { collectPlatformPayment: data.collectPlatformPayment }),
+        ...(data.applyShippingRules !== undefined && { applyShippingRules: data.applyShippingRules }),
+        ...(data.applyPromotionalDiscounts !== undefined && { applyPromotionalDiscounts: data.applyPromotionalDiscounts }),
         updatedAt: new Date(),
       })
       .where(eq(agentConfigsTable.merchantId, merchantId))
@@ -99,6 +114,13 @@ router.patch("/agent-config", requireAuth, async (req: Request, res: Response) =
         testOrderEnabled: data.testOrderEnabled ?? true,
         webhookUrl: data.webhookUrl ?? null,
         enabledCapabilities: data.enabledCapabilities ?? null,
+        orderDestination: data.orderDestination ?? "platform",
+        defaultOrderStatus: data.defaultOrderStatus ?? "processing",
+        tagOrders: data.tagOrders ?? true,
+        addOrderComment: data.addOrderComment ?? true,
+        collectPlatformPayment: data.collectPlatformPayment ?? true,
+        applyShippingRules: data.applyShippingRules ?? true,
+        applyPromotionalDiscounts: data.applyPromotionalDiscounts ?? false,
       })
       .returning();
   }
