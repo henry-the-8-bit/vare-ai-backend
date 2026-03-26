@@ -11,6 +11,7 @@ import {
 import { eq, sql, and, lt } from "drizzle-orm";
 import { logger } from "../lib/logger.js";
 import { getOrGenerateInsights } from "../services/insightsService.js";
+import { distributionService } from "../services/distribution/distributionService.js";
 
 const PROBE_FREQUENCY_HOURS: Record<string, number> = {
   realtime: 0.25,
@@ -208,6 +209,15 @@ async function triggerDeltaSync() {
   }
 }
 
+async function runDistributionProductCountUpdate() {
+  try {
+    await distributionService.updateAllProductCounts();
+    logger.info("[distribution] Product counts updated for all enabled distributions");
+  } catch (err) {
+    logger.error({ err }, "[distribution] Product count update failed");
+  }
+}
+
 export function startBackgroundJobs() {
   const FIVE_MINUTES = 5 * 60 * 1000;
   const THIRTY_MINUTES = 30 * 60 * 1000;
@@ -234,5 +244,9 @@ export function startBackgroundJobs() {
     runDailyInsights().catch((err) => logger.error({ err }, "[insights] Uncaught error"));
   }, TWENTY_FOUR_HOURS);
 
-  logger.info("Background jobs started: health-check (5m), readiness (6h), delta-sync (6h), inventory-probe (30m dispatch per merchant config schedule), insights (24h)");
+  setInterval(() => {
+    runDistributionProductCountUpdate().catch((err) => logger.error({ err }, "[distribution] Uncaught error"));
+  }, SIX_HOURS);
+
+  logger.info("Background jobs started: health-check (5m), readiness (6h), delta-sync (6h), inventory-probe (30m), insights (24h), distribution-product-count (6h)");
 }
