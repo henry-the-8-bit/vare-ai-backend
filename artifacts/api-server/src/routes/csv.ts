@@ -19,6 +19,7 @@ import {
 } from "../services/csvImportService.js";
 import { advanceOnboardingPhase } from "../services/phaseService.js";
 import { VERTICAL_FIELDS, isValidVertical, getRequiredFields, type VerticalId } from "../data/verticalFields.js";
+import { listTransformMetadata, isValidTransformId } from "../data/columnTransforms.js";
 
 const router: IRouter = Router();
 
@@ -45,6 +46,10 @@ router.get("/csv/fields", requireAuth, (req: Request, res: Response) => {
 
   // Default: return the legacy flat field list for backwards compatibility
   successResponse(res, { fields: VARE_FIELDS });
+});
+
+router.get("/csv/transforms", requireAuth, (_req: Request, res: Response) => {
+  successResponse(res, { transforms: listTransformMetadata() });
 });
 
 router.post("/csv/upload", requireAuth, upload.single("file"), async (req: Request, res: Response) => {
@@ -230,8 +235,16 @@ const mappingsSchema = z.object({
     z.object({
       csvHeader: z.string().min(1),
       vareField: z.string().nullable(),
+      transformId: z.string().nullable().optional(),
     }),
   ),
+  fieldOverrides: z.array(
+    z.object({
+      vareField: z.string().min(1),
+      strategy: z.enum(["default_value", "ai_fill"]),
+      defaultValue: z.string().optional(),
+    }),
+  ).optional(),
 });
 
 router.post("/csv/uploads/:uploadId/mappings", requireAuth, async (req: Request, res: Response) => {
@@ -244,8 +257,16 @@ router.post("/csv/uploads/:uploadId/mappings", requireAuth, async (req: Request,
     return;
   }
 
+  // Validate transform IDs if provided
+  for (const m of parsed.data.mappings) {
+    if (m.transformId && !isValidTransformId(m.transformId)) {
+      errorResponse(res, `Unknown transform: ${m.transformId}`, "VALIDATION_ERROR", 400);
+      return;
+    }
+  }
+
   try {
-    await confirmMappings(uploadId, merchantId, parsed.data.mappings);
+    await confirmMappings(uploadId, merchantId, parsed.data.mappings, parsed.data.fieldOverrides);
     void advanceOnboardingPhase(merchantId);
     successResponse(res, { confirmed: true, uploadId });
   } catch (err) {

@@ -34,10 +34,30 @@ export const csvColumnMappingsTable = pgTable(
       .notNull(),
     csvHeader: varchar("csv_header", { length: 255 }).notNull(),
     vareField: varchar("vare_field", { length: 100 }),
+    transformId: varchar("transform_id", { length: 50 }),
     createdAt: timestamp("created_at").defaultNow(),
   },
   (t) => [index("idx_csv_column_mappings_upload").on(t.csvUploadId)],
 );
 
+export const csvFieldOverridesTable = pgTable(
+  "csv_field_overrides",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    merchantId: uuid("merchant_id")
+      .references(() => merchantsTable.id, { onDelete: "cascade" })
+      .notNull(),
+    csvUploadId: uuid("csv_upload_id")
+      .references(() => csvUploadsTable.id, { onDelete: "cascade" })
+      .notNull(),
+    vareField: varchar("vare_field", { length: 100 }).notNull(),
+    strategy: varchar("strategy", { length: 20 }).notNull(), // "default_value" | "ai_fill"
+    defaultValue: varchar("default_value", { length: 500 }),
+    createdAt: timestamp("created_at").defaultNow(),
+  },
+  (t) => [index("idx_csv_field_overrides_upload").on(t.csvUploadId)],
+);
+
 export type CsvUpload = typeof csvUploadsTable.$inferSelect;
 export type CsvColumnMapping = typeof csvColumnMappingsTable.$inferSelect;
+export type CsvFieldOverride = typeof csvFieldOverridesTable.$inferSelect;

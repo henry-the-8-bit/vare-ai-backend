@@ -3,9 +3,11 @@ import { db } from "@workspace/db";
 import {
   csvUploadsTable,
   csvColumnMappingsTable,
+  csvFieldOverridesTable,
   normalizedProductsTable,
 } from "@workspace/db/schema";
 import { eq, and } from "drizzle-orm";
+import { getTransform } from "../data/columnTransforms.js";
 
 export const VARE_FIELDS = [
   { field: "sku", label: "SKU", required: true },
@@ -135,7 +137,8 @@ export async function parseAndSaveCsv(
 export async function confirmMappings(
   uploadId: string,
   merchantId: string,
-  mappings: { csvHeader: string; vareField: string | null }[],
+  mappings: { csvHeader: string; vareField: string | null; transformId?: string | null }[],
+  fieldOverrides?: { vareField: string; strategy: "default_value" | "ai_fill"; defaultValue?: string }[],
 ): Promise<void> {
   const [upload] = await db
     .select({ id: csvUploadsTable.id })
@@ -150,7 +153,9 @@ export async function confirmMappings(
   if (!skuMapping) throw new Error("A column must be mapped to 'sku'");
   if (!nameMapping) throw new Error("A column must be mapped to 'name'");
 
+  // Clear existing mappings and overrides
   await db.delete(csvColumnMappingsTable).where(eq(csvColumnMappingsTable.csvUploadId, uploadId));
+  await db.delete(csvFieldOverridesTable).where(eq(csvFieldOverridesTable.csvUploadId, uploadId));
 
   if (mappings.length > 0) {
     await db.insert(csvColumnMappingsTable).values(
@@ -159,6 +164,20 @@ export async function confirmMappings(
         csvUploadId: uploadId,
         csvHeader: m.csvHeader,
         vareField: m.vareField ?? null,
+        transformId: m.transformId ?? null,
+      })),
+    );
+  }
+
+  // Store field overrides (defaults / AI-fill markers for unmapped required fields)
+  if (fieldOverrides && fieldOverrides.length > 0) {
+    await db.insert(csvFieldOverridesTable).values(
+      fieldOverrides.map((o) => ({
+        merchantId,
+        csvUploadId: uploadId,
+        vareField: o.vareField,
+        strategy: o.strategy,
+        defaultValue: o.strategy === "default_value" ? (o.defaultValue ?? null) : null,
       })),
     );
   }
@@ -184,10 +203,19 @@ export async function runImport(uploadId: string, merchantId: string): Promise<{
     .from(csvColumnMappingsTable)
     .where(eq(csvColumnMappingsTable.csvUploadId, uploadId));
 
+  const overrides = await db
+    .select()
+    .from(csvFieldOverridesTable)
+    .where(eq(csvFieldOverridesTable.csvUploadId, uploadId));
+
   const fieldMap: Record<string, string> = {};
+  const transformMap: Record<string, string> = {}; // csvHeader → transformId
   for (const m of mappings) {
     if (m.vareField && m.vareField !== "skip") {
       fieldMap[m.csvHeader] = m.vareField;
+    }
+    if (m.transformId) {
+      transformMap[m.csvHeader] = m.transformId;
     }
   }
 
@@ -209,10 +237,39 @@ export async function runImport(uploadId: string, merchantId: string): Promise<{
       const row = batch[j]!;
       const rowNum = i + j + 2;
 
-      const get = (field: string): string | undefined => {
-        const header = Object.keys(fieldMap).find((h) => fieldMap[h] === field);
-        return header ? (row[header] ?? undefined) : undefined;
-      };
+      // Build a mutable field-value map from the CSV row
+      const extracted: Record<string, string> = {};
+      for (const [header, value] of Object.entries(row)) {
+        const field = fieldMap[header];
+        if (field && value) {
+          extracted[field] = value;
+        }
+      }
+
+      // Apply column transforms (may produce secondary fields)
+      for (const [header, transformId] of Object.entries(transformMap)) {
+        const transform = getTransform(transformId);
+        if (!transform) continue;
+        const rawValue = row[header] ?? "";
+        const produced = transform.fn(rawValue, row);
+        for (const [field, value] of Object.entries(produced)) {
+          if (value) extracted[field] = value;
+        }
+      }
+
+      // Apply field overrides for unmapped required fields
+      let hasAiFill = false;
+      for (const override of overrides) {
+        if (!extracted[override.vareField]) {
+          if (override.strategy === "default_value" && override.defaultValue) {
+            extracted[override.vareField] = override.defaultValue;
+          } else if (override.strategy === "ai_fill") {
+            hasAiFill = true;
+          }
+        }
+      }
+
+      const get = (field: string): string | undefined => extracted[field] || undefined;
 
       const sku = get("sku")?.trim();
       const name = get("name")?.trim();
@@ -222,13 +279,14 @@ export async function runImport(uploadId: string, merchantId: string): Promise<{
       const rawPrice = get("price");
       const price = rawPrice ? parseFloat(rawPrice.replace(/[^0-9.-]/g, "")) : undefined;
 
-      const rawQty = get("stock_qty");
-
       const customAttributes: Record<string, string> = {};
       for (const [header, value] of Object.entries(row)) {
         const mapped = fieldMap[header];
         if (!mapped && value) customAttributes[header] = value;
       }
+
+      // AI-fill products get a lower initial score so they enter the LLM enrichment pipeline
+      const initialScore = hasAiFill ? 30 : 50;
 
       values.push({
         merchantId,
@@ -248,8 +306,8 @@ export async function runImport(uploadId: string, merchantId: string): Promise<{
         weightUnit: get("weight_unit") ?? null,
         imageUrls: get("image_url") ? [get("image_url")] : null,
         customAttributes: Object.keys(customAttributes).length > 0 ? customAttributes : null,
-        normalizationStatus: "pending",
-        agentReadinessScore: 50,
+        normalizationStatus: hasAiFill ? "needs_review" : "pending",
+        agentReadinessScore: initialScore,
       });
     }
 
