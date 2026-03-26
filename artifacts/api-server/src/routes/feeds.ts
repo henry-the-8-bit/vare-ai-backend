@@ -360,8 +360,13 @@ const updateFeedSchema = createFeedSchema.partial();
 
 router.get("/feeds", requireAuth, async (req: Request, res: Response) => {
   const merchantId = req.merchantId!;
-  const feeds = await feedService.listFeeds(merchantId);
-  successResponse(res, feeds);
+  try {
+    const feeds = await feedService.listFeeds(merchantId);
+    successResponse(res, feeds);
+  } catch (err: any) {
+    console.error("[feeds] listFeeds error:", err);
+    errorResponse(res, err.message || "Failed to list feeds", "INTERNAL_ERROR", 500);
+  }
 });
 
 router.post("/feeds", requireAuth, async (req: Request, res: Response) => {
@@ -373,8 +378,13 @@ router.post("/feeds", requireAuth, async (req: Request, res: Response) => {
     return;
   }
 
-  const feed = await feedService.createFeed(merchantId, parsed.data);
-  successResponse(res, feed, 201);
+  try {
+    const feed = await feedService.createFeed(merchantId, parsed.data);
+    successResponse(res, feed, 201);
+  } catch (err: any) {
+    console.error("[feeds] createFeed error:", err);
+    errorResponse(res, err.message || "Failed to create feed", "INTERNAL_ERROR", 500);
+  }
 });
 
 router.put("/feeds/:id", requireAuth, async (req: Request, res: Response) => {
@@ -387,64 +397,85 @@ router.put("/feeds/:id", requireAuth, async (req: Request, res: Response) => {
     return;
   }
 
-  const feed = await feedService.updateFeed(merchantId, feedId, parsed.data);
-  if (!feed) {
-    errorResponse(res, "Feed not found", "NOT_FOUND", 404);
-    return;
+  try {
+    const feed = await feedService.updateFeed(merchantId, feedId, parsed.data);
+    if (!feed) {
+      errorResponse(res, "Feed not found", "NOT_FOUND", 404);
+      return;
+    }
+    successResponse(res, feed);
+  } catch (err: any) {
+    console.error("[feeds] updateFeed error:", err);
+    errorResponse(res, err.message || "Failed to update feed", "INTERNAL_ERROR", 500);
   }
-
-  successResponse(res, feed);
 });
 
 router.delete("/feeds/:id", requireAuth, async (req: Request, res: Response) => {
   const merchantId = req.merchantId!;
   const feedId = req.params["id"] as string;
 
-  const deleted = await feedService.deleteFeed(merchantId, feedId);
-  if (!deleted) {
-    errorResponse(res, "Feed not found", "NOT_FOUND", 404);
-    return;
+  try {
+    const deleted = await feedService.deleteFeed(merchantId, feedId);
+    if (!deleted) {
+      errorResponse(res, "Feed not found", "NOT_FOUND", 404);
+      return;
+    }
+    successResponse(res, { deleted: true });
+  } catch (err: any) {
+    console.error("[feeds] deleteFeed error:", err);
+    errorResponse(res, err.message || "Failed to delete feed", "INTERNAL_ERROR", 500);
   }
-
-  successResponse(res, { deleted: true });
 });
 
 router.post("/feeds/:id/sync", requireAuth, async (req: Request, res: Response) => {
   const merchantId = req.merchantId!;
   const feedId = req.params["id"] as string;
 
-  const result = await feedService.triggerSync(merchantId, feedId);
-  if (!result) {
-    errorResponse(res, "Feed not found", "NOT_FOUND", 404);
-    return;
+  try {
+    const result = await feedService.triggerSync(merchantId, feedId);
+    if (!result) {
+      errorResponse(res, "Feed not found", "NOT_FOUND", 404);
+      return;
+    }
+    if ("error" in result) {
+      errorResponse(res, result.error as string, "FEED_PAUSED", 400);
+      return;
+    }
+    successResponse(res, result, 202);
+  } catch (err: any) {
+    console.error("[feeds] triggerSync error:", err);
+    errorResponse(res, err.message || "Failed to trigger sync", "INTERNAL_ERROR", 500);
   }
-  if ("error" in result) {
-    errorResponse(res, result.error as string, "FEED_PAUSED", 400);
-    return;
-  }
-
-  successResponse(res, result, 202);
 });
 
 router.post("/feeds/:id/pause", requireAuth, async (req: Request, res: Response) => {
   const merchantId = req.merchantId!;
   const feedId = req.params["id"] as string;
 
-  const feed = await feedService.togglePause(merchantId, feedId);
-  if (!feed) {
-    errorResponse(res, "Feed not found", "NOT_FOUND", 404);
-    return;
+  try {
+    const feed = await feedService.togglePause(merchantId, feedId);
+    if (!feed) {
+      errorResponse(res, "Feed not found", "NOT_FOUND", 404);
+      return;
+    }
+    successResponse(res, feed);
+  } catch (err: any) {
+    console.error("[feeds] togglePause error:", err);
+    errorResponse(res, err.message || "Failed to toggle pause", "INTERNAL_ERROR", 500);
   }
-
-  successResponse(res, feed);
 });
 
 router.post("/feeds/:id/test", requireAuth, async (req: Request, res: Response) => {
   const merchantId = req.merchantId!;
   const feedId = req.params["id"] as string;
 
-  const result = await feedService.testConnection(merchantId, feedId);
-  successResponse(res, result);
+  try {
+    const result = await feedService.testConnection(merchantId, feedId);
+    successResponse(res, result);
+  } catch (err: any) {
+    console.error("[feeds] testConnection error:", err);
+    errorResponse(res, err.message || "Failed to test connection", "INTERNAL_ERROR", 500);
+  }
 });
 
 export default router;
