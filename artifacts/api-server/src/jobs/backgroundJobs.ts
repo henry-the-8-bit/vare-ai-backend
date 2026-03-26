@@ -7,14 +7,11 @@ import {
   agentConfigsTable,
   inventoryTable,
   probeConfigsTable,
-  platformConnectionsTable,
 } from "@workspace/db/schema";
 import { eq, sql, and, lt } from "drizzle-orm";
 import { logger } from "../lib/logger.js";
 import { getOrGenerateInsights } from "../services/insightsService.js";
 import { distributionService } from "../services/distribution/distributionService.js";
-import { getAdapter } from "../services/distribution/adapters/index.js";
-import type { DistributionPlatform } from "../services/distribution/types.js";
 
 const PROBE_FREQUENCY_HOURS: Record<string, number> = {
   realtime: 0.25,
@@ -212,58 +209,12 @@ async function triggerDeltaSync() {
   }
 }
 
-async function runDistributionSync() {
+async function runDistributionProductCountUpdate() {
   try {
-    const connections = await db
-      .select()
-      .from(platformConnectionsTable)
-      .where(eq(platformConnectionsTable.connectionStatus, "connected"));
-
-    for (const conn of connections) {
-      if (!conn.syncSchedule || conn.syncSchedule === "manual") continue;
-
-      // Simple schedule check: if lastSyncAt is older than 6 hours, run delta sync
-      const sixHoursAgo = new Date(Date.now() - 6 * 60 * 60 * 1000);
-      if (conn.lastSyncAt && conn.lastSyncAt > sixHoursAgo) continue;
-
-      try {
-        await distributionService.triggerSync(conn.id, conn.merchantId, "delta_sync");
-        logger.info({ connectionId: conn.id, platform: conn.platform }, "[distribution-sync] Triggered delta sync");
-      } catch (err) {
-        logger.warn({ connectionId: conn.id, err }, "[distribution-sync] Failed to trigger sync");
-      }
-    }
+    await distributionService.updateAllProductCounts();
+    logger.info("[distribution] Product counts updated for all enabled distributions");
   } catch (err) {
-    logger.error({ err }, "[distribution-sync] Job failed");
-  }
-}
-
-async function runDistributionHealthCheck() {
-  try {
-    const connections = await db
-      .select()
-      .from(platformConnectionsTable)
-      .where(eq(platformConnectionsTable.connectionStatus, "connected"));
-
-    for (const conn of connections) {
-      try {
-        const adapter = getAdapter(conn.platform as DistributionPlatform);
-        const result = await adapter.healthCheck(conn.id);
-
-        await db
-          .update(platformConnectionsTable)
-          .set({
-            apiHealthPct: result.healthy ? 100.0 : 0.0,
-            connectionStatus: result.healthy ? "connected" : "error",
-            updatedAt: new Date(),
-          })
-          .where(eq(platformConnectionsTable.id, conn.id));
-      } catch (err) {
-        logger.warn({ connectionId: conn.id, err }, "[distribution-health] Health check failed");
-      }
-    }
-  } catch (err) {
-    logger.error({ err }, "[distribution-health] Job failed");
+    logger.error({ err }, "[distribution] Product count update failed");
   }
 }
 
@@ -294,12 +245,8 @@ export function startBackgroundJobs() {
   }, TWENTY_FOUR_HOURS);
 
   setInterval(() => {
-    runDistributionSync().catch((err) => logger.error({ err }, "[distribution-sync] Uncaught error"));
+    runDistributionProductCountUpdate().catch((err) => logger.error({ err }, "[distribution] Uncaught error"));
   }, SIX_HOURS);
 
-  setInterval(() => {
-    runDistributionHealthCheck().catch((err) => logger.error({ err }, "[distribution-health] Uncaught error"));
-  }, THIRTY_MINUTES);
-
-  logger.info("Background jobs started: health-check (5m), readiness (6h), delta-sync (6h), inventory-probe (30m), insights (24h), distribution-sync (6h), distribution-health (30m)");
+  logger.info("Background jobs started: health-check (5m), readiness (6h), delta-sync (6h), inventory-probe (30m), insights (24h), distribution-product-count (6h)");
 }

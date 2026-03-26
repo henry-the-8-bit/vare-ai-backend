@@ -7,6 +7,6 @@ const router: IRouter = Router({ mergeParams: true });
 
 router.use("/merchants/:merchant_slug", catalogRouter);
 router.use("/merchants/:merchant_slug", ordersRouter);
-router.use("/merchants/:merchant_slug", platformSpecsRouter);
+router.use("/platforms", platformSpecsRouter);
 
 export default router;
