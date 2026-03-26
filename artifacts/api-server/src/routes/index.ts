@@ -19,6 +19,7 @@ import botDefenseRouter from "./botDefense.js";
 import seederRouter from "./seeder.js";
 import phaseRouter from "./phase.js";
 import csvRouter from "./csv.js";
+import distributionsRouter from "./distributions.js";
 
 const router: IRouter = Router();
 
@@ -42,5 +43,6 @@ router.use(feedsRouter);
 router.use(insightsRouter);
 router.use(transactionsRouter);
 router.use(botDefenseRouter);
+router.use(distributionsRouter);
 
 export default router;
