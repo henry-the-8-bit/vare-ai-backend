@@ -347,12 +347,30 @@ router.get("/feeds/system-alerts", requireAuth, async (req: Request, res: Respon
 // Feed CRUD & Actions
 // ---------------------------------------------------------------------------
 
+const inventoryConfigSchema = z.object({
+  source: z.enum(["csv", "api", "scheduled_file"]),
+  stalenessThresholdHours: z.number().min(1).max(720),
+  lowStockThreshold: z.number().int().min(0).max(10000),
+  safetyBufferPercent: z.number().min(0).max(100),
+  staleBehavior: z.enum(["hide", "flag", "show"]),
+});
+
+const feedConfigSchema = z.record(z.string(), z.unknown())
+  .optional()
+  .refine(
+    (val) => {
+      if (!val?.inventory) return true;
+      return inventoryConfigSchema.safeParse(val.inventory).success;
+    },
+    { message: "Invalid inventory configuration" },
+  );
+
 const createFeedSchema = z.object({
   name: z.string().min(1).max(255),
   type: z.enum(["live", "static"]),
   source: z.string().min(1).max(50),
   sourceConnectionId: z.string().uuid().optional(),
-  config: z.record(z.string(), z.unknown()).optional(),
+  config: feedConfigSchema,
   syncSchedule: z.string().optional(),
 });
 

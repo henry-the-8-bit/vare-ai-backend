@@ -396,6 +396,8 @@ export class FeedService {
       syncActivity,
       syncCount24h,
       errorMessage: feed.errorMessage,
+      config: feed.config,
+      syncSchedule: feed.syncSchedule,
     };
   }
 }
