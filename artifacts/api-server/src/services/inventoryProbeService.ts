@@ -254,3 +254,50 @@ export async function getProbeResults(merchantId: string, skus?: string[]): Prom
     .where(eq(inventoryTable.merchantId, merchantId))
     .limit(100);
 }
+
+// --- Feed-level inventory configuration ---
+
+export interface FeedInventoryConfig {
+  source: "csv" | "api" | "scheduled_file";
+  stalenessThresholdHours: number;
+  lowStockThreshold: number;
+  safetyBufferPercent: number;
+  staleBehavior: "hide" | "flag" | "show";
+}
+
+export interface AdjustedInventoryResult extends InventoryResult {
+  stale: boolean;
+  hidden: boolean;
+  lowStock: boolean;
+}
+
+export function applyFeedInventoryConfig(
+  result: InventoryResult,
+  config: FeedInventoryConfig,
+): AdjustedInventoryResult {
+  // Apply safety buffer — reduce reported quantity
+  let adjustedQty = result.quantity;
+  if (adjustedQty !== null && config.safetyBufferPercent > 0) {
+    adjustedQty = Math.floor(adjustedQty * (1 - config.safetyBufferPercent / 100));
+  }
+
+  // Staleness check
+  const stale = result.lastProbed
+    ? (Date.now() - result.lastProbed.getTime()) > config.stalenessThresholdHours * 3_600_000
+    : true;
+
+  // Apply stale behavior
+  const hidden = stale && config.staleBehavior === "hide";
+
+  // Low stock check using feed-level threshold
+  const lowStock = adjustedQty !== null && adjustedQty > 0 && adjustedQty <= config.lowStockThreshold;
+
+  return {
+    ...result,
+    quantity: adjustedQty,
+    isInStock: hidden ? false : (adjustedQty !== null ? adjustedQty > 0 : result.isInStock),
+    stale,
+    hidden,
+    lowStock,
+  };
+}

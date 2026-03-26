@@ -9,10 +9,24 @@ import {
 import { eq, and, ilike, or, gte, lte, desc, sql, inArray } from "drizzle-orm";
 import { requireAgentAuth } from "../../middlewares/auth.js";
 import { successResponse, paginatedResponse, errorResponse } from "../../lib/response.js";
-import { probeSingleSku } from "../../services/inventoryProbeService.js";
+import { probeSingleSku, applyFeedInventoryConfig, type FeedInventoryConfig } from "../../services/inventoryProbeService.js";
+import { feedService } from "../../services/feedService.js";
 import { z } from "zod/v4";
 
 const router: IRouter = Router({ mergeParams: true });
+
+async function getFeedInventoryConfig(merchantId: string): Promise<FeedInventoryConfig | null> {
+  try {
+    const feeds = await feedService.listFeeds(merchantId);
+    for (const feed of feeds) {
+      const cfg = (feed as any).config?.inventory;
+      if (cfg && cfg.source) return cfg as FeedInventoryConfig;
+    }
+  } catch {
+    // Feed lookup failed — fall through to default behavior
+  }
+  return null;
+}
 
 function getParam(req: Request, key: string): string | undefined {
   const val = req.params[key];
@@ -240,16 +254,36 @@ router.get("/catalog/:sku", requireAgentAuth, async (req: Request, res: Response
   }
 
   const probeResult = await probeSingleSku(merchantId, sku);
+  const feedInvConfig = await getFeedInventoryConfig(merchantId);
 
-  const inventoryStatus = {
-    sku,
-    in_stock: probeResult.isInStock,
-    quantity: probeResult.quantity,
-    low_stock: probeResult.quantity !== null && probeResult.quantity <= 5,
-    sources: [probeResult.source],
-    last_checked: probeResult.lastProbed?.toISOString() ?? null,
-    cached: probeResult.cached,
-  };
+  let inventoryStatus;
+  if (feedInvConfig) {
+    const adjusted = applyFeedInventoryConfig(probeResult, feedInvConfig);
+    if (adjusted.hidden) {
+      errorResponse(res, "Product inventory unavailable (stale data)", "STALE_HIDDEN", 404);
+      return;
+    }
+    inventoryStatus = {
+      sku,
+      in_stock: adjusted.isInStock,
+      quantity: adjusted.quantity,
+      low_stock: adjusted.lowStock,
+      sources: [adjusted.source],
+      last_checked: adjusted.lastProbed?.toISOString() ?? null,
+      cached: adjusted.cached,
+      stale: adjusted.stale,
+    };
+  } else {
+    inventoryStatus = {
+      sku,
+      in_stock: probeResult.isInStock,
+      quantity: probeResult.quantity,
+      low_stock: probeResult.quantity !== null && probeResult.quantity <= 5,
+      sources: [probeResult.source],
+      last_checked: probeResult.lastProbed?.toISOString() ?? null,
+      cached: probeResult.cached,
+    };
+  }
 
   await Promise.all([
     db.insert(agentQueriesTable).values({
@@ -319,17 +353,39 @@ router.get("/inventory/:sku", requireAgentAuth, async (req: Request, res: Respon
     }),
   ]).catch(() => {});
 
-  successResponse(res, {
-    sku,
-    in_stock: probeResult.isInStock,
-    quantity: probeResult.quantity,
-    low_stock: probeResult.quantity !== null && probeResult.quantity <= 5,
-    sources: [probeResult.source],
-    last_checked: probeResult.lastProbed?.toISOString() ?? null,
-    cached: probeResult.cached,
-    latency_ms: probeResult.latencyMs,
-    error: probeResult.error ?? null,
-  });
+  const feedInvConfig = await getFeedInventoryConfig(merchantId);
+
+  if (feedInvConfig) {
+    const adjusted = applyFeedInventoryConfig(probeResult, feedInvConfig);
+    if (adjusted.hidden) {
+      errorResponse(res, "Product inventory unavailable (stale data)", "STALE_HIDDEN", 404);
+      return;
+    }
+    successResponse(res, {
+      sku,
+      in_stock: adjusted.isInStock,
+      quantity: adjusted.quantity,
+      low_stock: adjusted.lowStock,
+      sources: [adjusted.source],
+      last_checked: adjusted.lastProbed?.toISOString() ?? null,
+      cached: adjusted.cached,
+      latency_ms: adjusted.latencyMs,
+      stale: adjusted.stale,
+      error: adjusted.error ?? null,
+    });
+  } else {
+    successResponse(res, {
+      sku,
+      in_stock: probeResult.isInStock,
+      quantity: probeResult.quantity,
+      low_stock: probeResult.quantity !== null && probeResult.quantity <= 5,
+      sources: [probeResult.source],
+      last_checked: probeResult.lastProbed?.toISOString() ?? null,
+      cached: probeResult.cached,
+      latency_ms: probeResult.latencyMs,
+      error: probeResult.error ?? null,
+    });
+  }
 });
 
 export default router;
