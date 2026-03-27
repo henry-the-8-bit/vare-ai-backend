@@ -31,7 +31,18 @@ router.get("/feeds/connections", requireAuth, async (req: Request, res: Response
     .from(magentoConnectionsTable)
     .where(eq(magentoConnectionsTable.merchantId, merchantId));
 
-  successResponse(res, connections);
+  const data = connections.map((c) => ({
+    name: c.storeName ?? "Store",
+    type: "magento",
+    status: c.connectionStatus === "connected" ? "connected" : c.connectionStatus ?? "pending",
+    lastSync: c.lastHealthCheck?.toISOString() ?? "",
+    nextSync: "",
+    metrics: { products: 0, categories: 0, avgLatency: "N/A" },
+    apiHealth: c.apiHealthPct ?? 0,
+    icon: "🔗",
+  }));
+
+  successResponse(res, data);
 });
 
 router.get("/feeds/sync-timeline", requireAuth, async (req: Request, res: Response) => {
@@ -52,7 +63,26 @@ router.get("/feeds/sync-timeline", requireAuth, async (req: Request, res: Respon
     .orderBy(desc(syncJobsTable.createdAt))
     .limit(100);
 
-  successResponse(res, jobs);
+  // Group jobs by jobType into timeline segments
+  const data = jobs.reduce<Array<{ label: string; segments: Array<{ start: number; end: number; type: string; tooltip: string }> }>>((acc, job) => {
+    const label = job.jobType ?? "sync";
+    let entry = acc.find((e) => e.label === label);
+    if (!entry) {
+      entry = { label, segments: [] };
+      acc.push(entry);
+    }
+    const start = job.startedAt?.getTime() ?? job.createdAt?.getTime() ?? 0;
+    const end = job.completedAt?.getTime() ?? start + (job.durationSeconds ?? 0) * 1000;
+    entry.segments.push({
+      start,
+      end,
+      type: job.status ?? "unknown",
+      tooltip: `${job.status} — ${job.processedRecords ?? 0}/${job.totalRecords ?? 0} records`,
+    });
+    return acc;
+  }, []);
+
+  successResponse(res, data);
 });
 
 router.get("/feeds/readiness-score", requireAuth, async (req: Request, res: Response) => {
@@ -110,15 +140,19 @@ router.get("/feeds/readiness-score", requireAuth, async (req: Request, res: Resp
 
   const pct = (n: number) => (total > 0 ? Math.round((n / total) * 1000) / 10 : 0);
 
+  const overallScore = Math.min(100, Math.round((pct(normalized) * 0.4 + (avgScore || 0) * 0.4 + pct(withFitment) * 0.2)));
+
   successResponse(res, {
-    totalProducts: total,
-    normalizedCount: normalized,
-    normalizationPct: pct(normalized),
-    avgAgentReadinessScore: avgScore,
-    withFitmentPct: pct(withFitment),
-    withPricePct: pct(withPrice),
-    withImagePct: pct(withImage),
-    overallScore: Math.min(100, Math.round((pct(normalized) * 0.4 + (avgScore || 0) * 0.4 + pct(withFitment) * 0.2))),
+    currentScore: overallScore,
+    targetScore: 85,
+    trend: [],
+    breakdown: [
+      { attribute: "Normalization", score: Math.round(pct(normalized)), weight: "40%" },
+      { attribute: "Readiness Score", score: avgScore, weight: "40%" },
+      { attribute: "Fitment Data", score: Math.round(pct(withFitment)), weight: "20%" },
+      { attribute: "Pricing", score: Math.round(pct(withPrice)), weight: "bonus" },
+      { attribute: "Images", score: Math.round(pct(withImage)), weight: "bonus" },
+    ],
   });
 });
 
@@ -167,7 +201,17 @@ router.get("/feeds/sync-history", requireAuth, async (req: Request, res: Respons
     return;
   }
 
-  paginatedResponse(res, jobs, Number(cnt ?? 0), page, limit);
+  const data = jobs.map((j) => ({
+    date: j.createdAt?.toISOString() ?? "",
+    source: "Magento",
+    type: j.jobType ?? "sync",
+    records: j.processedRecords ?? 0,
+    duration: j.durationSeconds ? `${j.durationSeconds}s` : "N/A",
+    status: j.status ?? "unknown",
+    details: j.errorCount && j.errorCount > 0 ? `${j.errorCount} errors` : `${j.processedRecords ?? 0}/${j.totalRecords ?? 0} processed`,
+  }));
+
+  successResponse(res, data);
 });
 
 router.get("/feeds/data-quality", requireAuth, async (req: Request, res: Response) => {
@@ -194,12 +238,16 @@ router.get("/feeds/data-quality", requireAuth, async (req: Request, res: Respons
     byStatus[row.status ?? "unknown"] = Number(row.cnt ?? 0);
   }
 
+  const normalizedCount = (byStatus["normalized"] ?? 0) + (byStatus["reviewed"] ?? 0);
+  const attributes = [
+    { name: "Normalization Status", withData: normalizedCount, without: total - normalizedCount, coverage: total > 0 ? Math.round((normalizedCount / total) * 100) : 0, trend: 0, critical: true },
+    { name: "Title", withData: total, without: 0, coverage: 100, trend: 0, critical: true },
+    { name: "Price", withData: normalizedCount, without: total - normalizedCount, coverage: total > 0 ? Math.round((normalizedCount / total) * 100) : 0, trend: 0, critical: true },
+  ];
+
   successResponse(res, {
-    totalProducts: total,
-    byStatus,
-    missingTitle: 0,
-    missingPrice: total - (byStatus["normalized"] ?? 0) - (byStatus["reviewed"] ?? 0),
-    missingFitment: 0,
+    attributes,
+    coverageOverTime: [],
   });
 });
 
@@ -223,7 +271,20 @@ router.get("/feeds/normalization", requireAuth, async (req: Request, res: Respon
       .where(eq(attributeMappingsTable.merchantId, merchantId)),
   ]);
 
-  paginatedResponse(res, mappings, Number(cnt ?? 0), page, limit);
+  successResponse(res, {
+    stats: {
+      totalAttributes: Number(cnt ?? 0),
+      totalMappings: Number(cnt ?? 0),
+      autoNormalized: mappings.filter((m) => m.confidence && Number(m.confidence) > 0.8).length,
+      pendingReview: mappings.filter((m) => !m.confidence || Number(m.confidence) <= 0.8).length,
+    },
+    recentActivity: mappings.slice(0, 10).map((m) => ({
+      date: m.createdAt?.toISOString() ?? "",
+      action: `Mapped ${m.sourceValue} → ${m.normalizedValue}`,
+      affected: 1,
+      status: m.confidence && Number(m.confidence) > 0.8 ? "auto" : "pending",
+    })),
+  });
 });
 
 router.get("/feeds/errors", requireAuth, async (req: Request, res: Response) => {
@@ -264,7 +325,31 @@ router.get("/feeds/errors", requireAuth, async (req: Request, res: Response) => 
     return;
   }
 
-  successResponse(res, jobs);
+  const totalErrors = jobs.reduce((s, j) => s + (j.errorCount ?? 0), 0);
+  const categories: Record<string, { count: number; lastSeen: string }> = {};
+  for (const j of jobs) {
+    const cat = j.jobType ?? "unknown";
+    if (!categories[cat]) {
+      categories[cat] = { count: 0, lastSeen: j.createdAt?.toISOString() ?? "" };
+    }
+    categories[cat].count += j.errorCount ?? 0;
+  }
+
+  successResponse(res, {
+    summary: {
+      totalEvents: jobs.length,
+      errors: totalErrors,
+      warnings: 0,
+      trend: totalErrors > 0 ? "up" : "stable",
+    },
+    categories: Object.entries(categories).map(([category, v]) => ({
+      category,
+      count: v.count,
+      lastSeen: v.lastSeen,
+      status: v.count > 0 ? "active" : "resolved",
+      detail: `${v.count} errors in ${category} jobs`,
+    })),
+  });
 });
 
 router.get("/feeds/inventory-health", requireAuth, async (req: Request, res: Response) => {
@@ -313,16 +398,19 @@ router.get("/feeds/inventory-health", requireAuth, async (req: Request, res: Res
   const pct = (n: number) => (total > 0 ? Math.round((n / total) * 1000) / 10 : 0);
 
   successResponse(res, {
-    totalSkus: total,
-    inStock,
-    inStockPct: pct(inStock),
-    outOfStock,
-    outOfStockPct: pct(outOfStock),
-    lowStock,
-    lowStockPct: pct(lowStock),
-    staleData: stale,
-    stalePct: pct(stale),
-    healthScore: Math.max(0, Math.min(100, Math.round(pct(inStock) - pct(stale) * 0.3))),
+    stats: { totalSKUs: total, inStock, lowStock, outOfStock },
+    freshness: {
+      lastProbe: new Date().toISOString(),
+      avgAge: stale > 0 ? `${Math.round((stale / total) * 24)}h` : "< 1h",
+      accuracy: `${Math.max(0, Math.min(100, Math.round(pct(inStock) - pct(stale) * 0.3)))}%`,
+    },
+    distribution: [
+      { label: "In Stock", count: inStock, percentage: pct(inStock) },
+      { label: "Low Stock", count: lowStock, percentage: pct(lowStock) },
+      { label: "Out of Stock", count: outOfStock, percentage: pct(outOfStock) },
+      { label: "Stale Data", count: stale, percentage: pct(stale) },
+    ],
+    topStockOuts: [],
   });
 });
 
@@ -340,7 +428,16 @@ router.get("/feeds/system-alerts", requireAuth, async (req: Request, res: Respon
     .orderBy(desc(systemAlertsTable.createdAt))
     .limit(50);
 
-  successResponse(res, alerts);
+  const data = alerts.map((a) => ({
+    type: a.alertType ?? "warning",
+    title: a.title ?? "",
+    time: a.createdAt?.toISOString() ?? "",
+    description: a.description ?? "",
+    suggestion: a.suggestion ?? "",
+    actions: ["Dismiss", "View Details"],
+  }));
+
+  successResponse(res, data);
 });
 
 // ---------------------------------------------------------------------------

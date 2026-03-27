@@ -9,7 +9,21 @@ const router: IRouter = Router();
 router.get("/insights", requireAuth, async (req: Request, res: Response) => {
   const merchantId = req.merchantId!;
   const range = parseRange(req.query["range"]);
-  const data = await getOrGenerateInsights(merchantId, range);
+  const rows = await getOrGenerateInsights(merchantId, range);
+  const typeToIcon: Record<string, string> = {
+    revenue: "trending",
+    growth_opportunity: "trending",
+    conversion: "trophy",
+    platform_mix: "trending",
+    query_gap: "warning",
+  };
+  const data = rows.map((r) => ({
+    type: typeToIcon[r.insightType ?? ""] ?? "warning",
+    badge: r.badge ?? "",
+    date: r.createdAt ? new Date(r.createdAt).toLocaleDateString() : "",
+    text: r.text ?? "",
+    action: r.actionLabel ?? "View Details",
+  }));
   successResponse(res, data);
 });
 
