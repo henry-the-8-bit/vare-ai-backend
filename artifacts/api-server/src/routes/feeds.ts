@@ -5,13 +5,13 @@ import {
   normalizedProductsTable,
   inventoryTable,
   attributeMappingsTable,
-  systemAlertsTable,
   magentoConnectionsTable,
 } from "@workspace/db/schema";
 import { eq, and, desc, sql, gte, lte } from "drizzle-orm";
 import { z } from "zod/v4";
 import { requireAuth } from "../middlewares/auth.js";
 import { successResponse, paginatedResponse, errorResponse } from "../lib/response.js";
+import { getAlerts } from "../services/notificationService.js";
 import { getDateBounds, type DateRange } from "../services/metricsService.js";
 import { feedService } from "../services/feedService.js";
 
@@ -330,16 +330,7 @@ router.get("/feeds/system-alerts", requireAuth, async (req: Request, res: Respon
   const merchantId = req.merchantId!;
   const onlyUnread = req.query["unread"] === "true";
 
-  const conditions = [eq(systemAlertsTable.merchantId, merchantId)];
-  if (onlyUnread) conditions.push(sql`is_read = false`);
-
-  const alerts = await db
-    .select()
-    .from(systemAlertsTable)
-    .where(and(...conditions))
-    .orderBy(desc(systemAlertsTable.createdAt))
-    .limit(50);
-
+  const alerts = await getAlerts(merchantId, { unread: onlyUnread || undefined, limit: 50 });
   successResponse(res, alerts);
 });
 

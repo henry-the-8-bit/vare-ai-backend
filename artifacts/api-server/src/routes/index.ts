@@ -20,6 +20,7 @@ import seederRouter from "./seeder.js";
 import phaseRouter from "./phase.js";
 import csvRouter from "./csv.js";
 import distributionsRouter from "./distributions.js";
+import notificationsRouter from "./notifications.js";
 
 const router: IRouter = Router();
 
@@ -44,5 +45,6 @@ router.use(insightsRouter);
 router.use(transactionsRouter);
 router.use(botDefenseRouter);
 router.use(distributionsRouter);
+router.use(notificationsRouter);
 
 export default router;

@@ -2,7 +2,6 @@ import { db } from "@workspace/db";
 import {
   merchantsTable,
   syncJobsTable,
-  systemAlertsTable,
   normalizedProductsTable,
   agentConfigsTable,
   inventoryTable,
@@ -12,6 +11,7 @@ import { eq, sql, and, lt } from "drizzle-orm";
 import { logger } from "../lib/logger.js";
 import { getOrGenerateInsights } from "../services/insightsService.js";
 import { distributionService } from "../services/distribution/distributionService.js";
+import { createAlert } from "../services/notificationService.js";
 
 const PROBE_FREQUENCY_HOURS: Record<string, number> = {
   realtime: 0.25,
@@ -33,13 +33,13 @@ async function runHealthCheck() {
 
     const merchants = await db.select({ id: merchantsTable.id }).from(merchantsTable).limit(50);
     for (const merchant of merchants) {
-      await db.insert(systemAlertsTable).values({
-        merchantId: merchant.id,
-        alertType: "error",
+      await createAlert(merchant.id, {
+        severity: "critical",
+        category: "system",
         title: "Database Health Check Failed",
         description: "The background health check could not reach the database.",
         suggestion: "Check DATABASE_URL and PostgreSQL service status.",
-        isRead: false,
+        source: "HealthCheck",
       }).catch(() => {});
     }
   }
@@ -77,6 +77,7 @@ async function runReadinessRecompute() {
     }
   } catch (err) {
     logger.error({ err }, "[readiness] Recompute failed");
+    // System-level alert — no specific merchant, log only
   }
 }
 
@@ -161,6 +162,17 @@ async function runInventoryBatchProbe() {
     }
   } catch (err) {
     logger.error({ err }, "[inventory-probe] Job failed");
+    // System-level alert — affects all merchants
+    const merchants = await db.select({ id: merchantsTable.id }).from(merchantsTable).where(eq(merchantsTable.isLive, true)).limit(50).catch(() => []);
+    for (const m of merchants) {
+      await createAlert(m.id, {
+        severity: "warning",
+        category: "inventory",
+        title: "Inventory batch probe failed",
+        description: `The scheduled inventory probe job encountered an error: ${String(err)}`,
+        source: "BackgroundJobs.inventoryProbe",
+      }).catch(() => {});
+    }
   }
 }
 
@@ -206,6 +218,16 @@ async function triggerDeltaSync() {
     }
   } catch (err) {
     logger.error({ err }, "[delta-sync] Failed to queue delta sync");
+    const merchants = await db.select({ id: merchantsTable.id }).from(merchantsTable).where(eq(merchantsTable.isLive, true)).limit(50).catch(() => []);
+    for (const m of merchants) {
+      await createAlert(m.id, {
+        severity: "warning",
+        category: "sync",
+        title: "Scheduled delta sync failed",
+        description: `The scheduled delta sync could not be queued: ${String(err)}`,
+        source: "BackgroundJobs.deltaSync",
+      }).catch(() => {});
+    }
   }
 }
 
@@ -215,6 +237,7 @@ async function runDistributionProductCountUpdate() {
     logger.info("[distribution] Product counts updated for all enabled distributions");
   } catch (err) {
     logger.error({ err }, "[distribution] Product count update failed");
+    // Distribution count failure is non-critical, no merchant alert
   }
 }
 

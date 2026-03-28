@@ -13,6 +13,7 @@ import { normalizeColor, COLOR_MAPPINGS } from "../data/colorMappings.js";
 import { parseMeasurement } from "../data/unitConversions.js";
 import { AUTOMOTIVE_ATTRIBUTE_MAP, FINISH_NORMALIZATIONS, stringSimilarity } from "../data/automotiveRules.js";
 import { logger } from "../lib/logger.js";
+import { createAlert } from "./notificationService.js";
 
 // ── Gemini 2.5 Flash integration (Transformation Zone) ──────────
 // Falls back to Claude Haiku if the Google AI key is not configured.
@@ -716,6 +717,20 @@ export async function runBatchNormalization(jobId: string, merchantId: string): 
     completedAt,
     durationSeconds: Math.round((completedAt.getTime() - startTime.getTime()) / 1000),
   }).where(eq(syncJobsTable.id, jobId));
+
+  if (errors > 0) {
+    await createAlert(merchantId, {
+      severity: normStatus === "failed" ? "error" : "warning",
+      category: "normalization",
+      title: normStatus === "failed"
+        ? "Normalization failed"
+        : `Normalization completed with ${errors} error${errors > 1 ? "s" : ""}`,
+      description: `Processed ${processed}/${total} products. ${errors} product${errors > 1 ? "s" : ""} could not be normalized.`,
+      source: "NormalizationService",
+      relatedEntityId: jobId,
+      relatedEntityType: "job",
+    }).catch(() => {});
+  }
 }
 
 // ── Normalization rule preview (for UI rule cards) ───────────────
