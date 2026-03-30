@@ -16,6 +16,7 @@ export const VARE_FIELDS = [
   { field: "manufacturer", label: "Manufacturer", required: false },
   { field: "mpn", label: "MPN / Part Number", required: false },
   { field: "upc", label: "UPC / Barcode", required: false },
+  { field: "asin", label: "ASIN", required: false },
   { field: "price", label: "Price", required: false },
   { field: "category", label: "Category", required: false },
   { field: "color", label: "Color", required: false },
@@ -51,6 +52,8 @@ const ALIASES: Record<string, string> = {
   part_num: "mpn", oem: "mpn",
   // UPC
   upc: "upc", barcode: "upc", ean: "upc", gtin: "upc", isbn: "upc",
+  // ASIN
+  asin: "asin", amazon_asin: "asin", amazon_id: "asin",
   // Price
   price: "price", retail_price: "price", list_price: "price", msrp: "price",
   unit_price: "price", cost: "price", sale_price: "price",
@@ -240,6 +243,7 @@ export async function runImport(uploadId: string, merchantId: string): Promise<{
         manufacturer: get("manufacturer") ?? null,
         mpn: get("mpn") ?? null,
         upc: get("upc") ?? null,
+        asin: get("asin") ?? null,
         price: price !== undefined && !isNaN(price) ? String(price) : null,
         categoryPath: get("category") ?? null,
         color: get("color") ?? null,

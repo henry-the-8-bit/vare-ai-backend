@@ -186,7 +186,7 @@ router.get("/products", requireAuth, async (req: Request, res: Response) => {
     return {
       id: p.id,
       sku: p.sku,
-      name: p.name ?? "",
+      name: p.name || p.sku || "",
       brand: p.brand ?? "",
       price: p.price ? Number(p.price) : 0,
       stock: qty,
@@ -270,11 +270,12 @@ router.get("/products/:id", requireAuth, async (req: Request, res: Response) => 
   successResponse(res, {
     id: product.id,
     sku: product.sku,
-    name: product.productTitle ?? "",
+    name: product.productTitle || product.sku || "",
     brand: product.brand ?? "",
     manufacturer: product.manufacturer ?? "",
     mpn: product.mpn ?? "",
     upc: product.upc ?? "",
+    asin: product.asin ?? "",
     price: product.price ? Number(product.price) : 0,
     currency: product.currency ?? "USD",
     color: product.color ?? "",
