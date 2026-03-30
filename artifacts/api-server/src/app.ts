@@ -2,7 +2,6 @@ import express, { type Express } from "express";
 import cors from "cors";
 import pinoHttp from "pino-http";
 import router from "./routes/index.js";
-import adminStatusRouter from "./routes/adminStatus.js";
 import { logger } from "./lib/logger.js";
 
 const app: Express = express();
@@ -54,10 +53,5 @@ app.use(express.json({ limit: "100mb" }));
 app.use(express.urlencoded({ limit: "100mb", extended: true }));
 
 app.use("/api", router);
-
-// Serve the admin status dashboard at the root level (outside /api prefix)
-// so it's accessible at /admin/status for the HTML page
-// API endpoints still available at /api/admin/status/*
-app.use(adminStatusRouter);
 
 export default app;
