@@ -10,6 +10,7 @@ import { eq, and, desc } from "drizzle-orm";
 import { MagentoConnector, type SyncFilters } from "./magentoConnector.js";
 import { decrypt } from "../lib/crypto.js";
 import { logger } from "../lib/logger.js";
+import { createAlertFromError, createAlert } from "./notificationService.js";
 
 export type SyncJobStatus = "queued" | "running" | "paused" | "completed" | "failed" | "cancelled";
 
@@ -140,6 +141,13 @@ async function runSyncBatches(
           durationSeconds: Math.round((Date.now() - startedAt.getTime()) / 1000),
         });
         await updateFeedSyncStatus(feedId, "error", `Page ${page}: ${String(err)}`);
+        await createAlertFromError(merchantId, err, {
+          category: "sync",
+          source: "CatalogSync",
+          severity: "error",
+          relatedEntityId: feedId ?? jobId,
+          relatedEntityType: feedId ? "feed" : "job",
+        }).catch(() => {});
         return;
       }
 
@@ -220,6 +228,18 @@ async function runSyncBatches(
       durationSeconds,
     });
     await updateFeedSyncStatus(feedId, totalErrors > 0 ? "warning" : "active");
+
+    if (totalErrors > 0) {
+      await createAlert(merchantId, {
+        severity: totalErrors > 10 ? "error" : "warning",
+        category: "sync",
+        title: `Catalog sync completed with ${totalErrors} error${totalErrors > 1 ? "s" : ""}`,
+        description: `Processed ${totalProcessed} products with ${totalErrors} errors. Check the sync error log for details.`,
+        source: "CatalogSync",
+        relatedEntityId: feedId ?? jobId,
+        relatedEntityType: feedId ? "feed" : "job",
+      }).catch(() => {});
+    }
   } finally {
     activeJobs.delete(jobId);
   }
@@ -259,6 +279,13 @@ export class CatalogSyncService {
           errorLog: [{ error: String(err), timestamp: new Date().toISOString() }],
         });
         await updateFeedSyncStatus(feedId, "error", String(err));
+        await createAlertFromError(merchantId, err, {
+          category: "sync",
+          source: "CatalogSync.startFullSync",
+          severity: "error",
+          relatedEntityId: job.id,
+          relatedEntityType: "job",
+        }).catch(() => {});
         activeJobs.delete(job.id);
       }
     });
@@ -307,6 +334,13 @@ export class CatalogSyncService {
           errorLog: [{ error: String(err), timestamp: new Date().toISOString() }],
         });
         await updateFeedSyncStatus(feedId, "error", String(err));
+        await createAlertFromError(merchantId, err, {
+          category: "sync",
+          source: "CatalogSync.startDeltaSync",
+          severity: "error",
+          relatedEntityId: job.id,
+          relatedEntityType: "job",
+        }).catch(() => {});
         activeJobs.delete(job.id);
       }
     });

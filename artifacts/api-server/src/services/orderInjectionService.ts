@@ -11,6 +11,7 @@ import { eq, and, inArray } from "drizzle-orm";
 import { MagentoConnector } from "./magentoConnector.js";
 import { decrypt } from "../lib/crypto.js";
 import { logger } from "../lib/logger.js";
+import { createAlertFromError } from "./notificationService.js";
 
 export interface CartItem {
   sku: string;
@@ -221,6 +222,13 @@ export async function injectOrder(
       orderStatus = "failed";
       errorMessage = String(err);
       logger.error({ merchantId, cartId, err }, "Order injection failed");
+      await createAlertFromError(merchantId, err, {
+        category: "gateway",
+        source: "OrderInjection",
+        severity: "error",
+        relatedEntityId: cartId,
+        relatedEntityType: "order",
+      }).catch(() => {});
     }
   }
 

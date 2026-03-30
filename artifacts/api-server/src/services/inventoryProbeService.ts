@@ -8,6 +8,7 @@ import { eq, and, inArray } from "drizzle-orm";
 import { MagentoConnector } from "./magentoConnector.js";
 import { decrypt } from "../lib/crypto.js";
 import { logger } from "../lib/logger.js";
+import { createAlertFromError } from "./notificationService.js";
 
 export interface ProbeConfig {
   inventorySource: string;
@@ -135,6 +136,11 @@ export async function probeSingleSku(merchantId: string, sku: string): Promise<I
   } catch (err) {
     const latencyMs = Date.now() - start;
     logger.warn({ merchantId, sku, err }, "Inventory probe failed");
+    await createAlertFromError(merchantId, err, {
+      category: "inventory",
+      source: "InventoryProbe",
+      severity: "warning",
+    }).catch(() => {});
     return handleFallback(merchantId, sku, cfg, String(err), latencyMs);
   }
 }
