@@ -2,6 +2,7 @@ import express, { type Express } from "express";
 import cors from "cors";
 import pinoHttp from "pino-http";
 import router from "./routes/index.js";
+import adminStatusRouter from "./routes/adminStatus.js";
 import { logger } from "./lib/logger.js";
 
 const app: Express = express();
@@ -33,6 +34,7 @@ const allowedOrigins = [
   "https://id-preview--e2850076-57e5-4c16-a21b-819c1d133972.lovable.app",
   "http://localhost:3000",
   "http://localhost:5173",
+  "https://status.vare-ai.com",
 ];
 
 app.use(
@@ -52,5 +54,10 @@ app.use(express.json({ limit: "100mb" }));
 app.use(express.urlencoded({ limit: "100mb", extended: true }));
 
 app.use("/api", router);
+
+// Serve the admin status dashboard at the root level (outside /api prefix)
+// so it's accessible at /admin/status for the HTML page
+// API endpoints still available at /api/admin/status/*
+app.use(adminStatusRouter);
 
 export default app;

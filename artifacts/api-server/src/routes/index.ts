@@ -21,6 +21,7 @@ import phaseRouter from "./phase.js";
 import csvRouter from "./csv.js";
 import distributionsRouter from "./distributions.js";
 import notificationsRouter from "./notifications.js";
+import adminStatusRouter from "./adminStatus.js";
 
 const router: IRouter = Router();
 
@@ -46,5 +47,6 @@ router.use(transactionsRouter);
 router.use(botDefenseRouter);
 router.use(distributionsRouter);
 router.use(notificationsRouter);
+router.use(adminStatusRouter);
 
 export default router;
