@@ -149,9 +149,7 @@ export async function confirmMappings(
   if (!upload) throw new Error("Upload not found");
 
   const skuMapping = mappings.find((m) => m.vareField === "sku");
-  const nameMapping = mappings.find((m) => m.vareField === "name");
   if (!skuMapping) throw new Error("A column must be mapped to 'sku'");
-  if (!nameMapping) throw new Error("A column must be mapped to 'name'");
 
   await db.delete(csvColumnMappingsTable).where(eq(csvColumnMappingsTable.csvUploadId, uploadId));
 
