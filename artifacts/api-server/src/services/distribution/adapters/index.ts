@@ -1,12 +1,16 @@
 import type { PlatformAdapter, DistributionPlatform, PlatformMetadata } from "../types.js";
 import { chatgptAdapter } from "./chatgptAdapter.js";
 import { geminiAdapter } from "./geminiAdapter.js";
+import { claudeAdapter } from "./claudeAdapter.js";
 import { perplexityAdapter } from "./perplexityAdapter.js";
+import { copilotAdapter } from "./copilotAdapter.js";
 
 const adapters: Record<string, PlatformAdapter> = {
   chatgpt: chatgptAdapter,
   gemini: geminiAdapter,
+  claude: claudeAdapter,
   perplexity: perplexityAdapter,
+  copilot: copilotAdapter,
 };
 
 export function getAdapter(platform: DistributionPlatform): PlatformAdapter {
