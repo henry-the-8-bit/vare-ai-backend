@@ -1,11 +1,11 @@
 import type { NormalizedProduct } from "@workspace/db/schema";
 
-export type DistributionPlatform = "chatgpt" | "gemini" | "perplexity";
+export type DistributionPlatform = "chatgpt" | "gemini" | "claude" | "perplexity" | "copilot";
 
-export const ALL_PLATFORMS: DistributionPlatform[] = ["chatgpt", "gemini", "perplexity"];
+export const ALL_PLATFORMS: DistributionPlatform[] = ["chatgpt", "gemini", "claude", "perplexity", "copilot"];
 
 export interface PlatformSpec {
-  format: "openapi" | "gemini_tools" | "feed_json";
+  format: "openapi" | "gemini_tools" | "feed_json" | "mcp_tools";
   content: Record<string, unknown>;
   generatedAt: string;
 }

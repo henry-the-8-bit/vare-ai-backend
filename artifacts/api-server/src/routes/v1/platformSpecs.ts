@@ -33,4 +33,10 @@ router.get("/gemini/tools.json", (req, res) => serveSpec(req, res, "gemini"));
 // GET /api/v1/platforms/perplexity/feed.json
 router.get("/perplexity/feed.json", (req, res) => serveSpec(req, res, "perplexity"));
 
+// GET /api/v1/platforms/claude/mcp-tools.json
+router.get("/claude/mcp-tools.json", (req, res) => serveSpec(req, res, "claude"));
+
+// GET /api/v1/platforms/copilot/openapi.json
+router.get("/copilot/openapi.json", (req, res) => serveSpec(req, res, "copilot"));
+
 export default router;
