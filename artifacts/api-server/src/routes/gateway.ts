@@ -19,6 +19,10 @@ const configureSchema = z.object({
   testOrderEnabled: z.boolean().optional(),
   webhookUrl: z.string().url().optional().nullable(),
   enabledCapabilities: z.array(z.string()).optional(),
+  orderDestination: z.enum(["platform", "erp", "webhook", "email"]).optional(),
+  collectPaymentViaCheckout: z.boolean().optional(),
+  applyShippingRules: z.boolean().optional(),
+  applyPromotionalDiscounts: z.boolean().optional(),
 });
 
 router.post("/gateway/configure", requireAuth, async (req: Request, res: Response) => {
@@ -51,6 +55,10 @@ router.post("/gateway/configure", requireAuth, async (req: Request, res: Respons
         ...(data.testOrderEnabled !== undefined && { testOrderEnabled: data.testOrderEnabled }),
         ...(data.webhookUrl !== undefined && { webhookUrl: data.webhookUrl }),
         ...(data.enabledCapabilities !== undefined && { enabledCapabilities: data.enabledCapabilities }),
+        ...(data.orderDestination !== undefined && { orderDestination: data.orderDestination }),
+        ...(data.collectPaymentViaCheckout !== undefined && { collectPaymentViaCheckout: data.collectPaymentViaCheckout }),
+        ...(data.applyShippingRules !== undefined && { applyShippingRules: data.applyShippingRules }),
+        ...(data.applyPromotionalDiscounts !== undefined && { applyPromotionalDiscounts: data.applyPromotionalDiscounts }),
         updatedAt: new Date(),
       })
       .where(eq(agentConfigsTable.merchantId, merchantId))
@@ -69,6 +77,10 @@ router.post("/gateway/configure", requireAuth, async (req: Request, res: Respons
         testOrderEnabled: data.testOrderEnabled ?? true,
         webhookUrl: data.webhookUrl ?? null,
         enabledCapabilities: data.enabledCapabilities ?? null,
+        orderDestination: data.orderDestination ?? "platform",
+        collectPaymentViaCheckout: data.collectPaymentViaCheckout ?? true,
+        applyShippingRules: data.applyShippingRules ?? true,
+        applyPromotionalDiscounts: data.applyPromotionalDiscounts ?? false,
       })
       .returning();
   }
