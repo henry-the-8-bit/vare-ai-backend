@@ -46,6 +46,7 @@ export const normalizedProductsTable = pgTable(
     manufacturer: varchar("manufacturer", { length: 255 }),
     mpn: varchar("mpn", { length: 255 }),
     upc: varchar("upc", { length: 50 }),
+    asin: varchar("asin", { length: 20 }),
     price: decimal("price", { precision: 10, scale: 2 }),
     currency: varchar("currency", { length: 10 }).default("USD"),
     color: varchar("color", { length: 100 }),

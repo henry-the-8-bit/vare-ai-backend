@@ -1,6 +1,6 @@
-import { Router, type IRouter, type Request, type Response } from "express";
+import { Router, type IRouter, type Request, type Response, type NextFunction } from "express";
 import { db } from "@workspace/db";
-import { fitmentConfigsTable } from "@workspace/db/schema";
+import { fitmentConfigsTable, merchantsTable } from "@workspace/db/schema";
 import { eq } from "drizzle-orm";
 import { z } from "zod/v4";
 import { requireAuth } from "../middlewares/auth.js";
@@ -13,7 +13,24 @@ import {
 
 const router: IRouter = Router();
 
-router.get("/fitment/assess", requireAuth, async (req: Request, res: Response) => {
+const FITMENT_VERTICALS = new Set(["automotive", "industrial"]);
+
+async function requireFitmentVertical(req: Request, res: Response, next: NextFunction) {
+  const merchantId = req.merchantId!;
+  const [merchant] = await db
+    .select({ vertical: merchantsTable.primaryVertical })
+    .from(merchantsTable)
+    .where(eq(merchantsTable.id, merchantId))
+    .limit(1);
+
+  if (merchant?.vertical && !FITMENT_VERTICALS.has(merchant.vertical)) {
+    errorResponse(res, "Fitment data is only applicable to automotive and industrial verticals", "VERTICAL_MISMATCH", 400);
+    return;
+  }
+  next();
+}
+
+router.get("/fitment/assess", requireAuth, requireFitmentVertical, async (req: Request, res: Response) => {
   const merchantId = req.merchantId!;
   const assessment = await assessFitment(merchantId);
   successResponse(res, assessment);
@@ -25,7 +42,7 @@ const fitmentSourceSchema = z.object({
   enabled: z.boolean().default(true),
 });
 
-router.post("/fitment/sources", requireAuth, async (req: Request, res: Response) => {
+router.post("/fitment/sources", requireAuth, requireFitmentVertical, async (req: Request, res: Response) => {
   const merchantId = req.merchantId!;
 
   const parsed = fitmentSourceSchema.safeParse(req.body);
@@ -69,7 +86,7 @@ router.post("/fitment/sources", requireAuth, async (req: Request, res: Response)
   successResponse(res, { ...config, message: "Fitment source configuration saved" });
 });
 
-router.get("/fitment/sources", requireAuth, async (req: Request, res: Response) => {
+router.get("/fitment/sources", requireAuth, requireFitmentVertical, async (req: Request, res: Response) => {
   const merchantId = req.merchantId!;
 
   const [config] = await db
@@ -91,7 +108,7 @@ const previewFitmentSchema = z.object({
   limit: z.number().int().min(1).max(50).optional().default(10),
 });
 
-router.post("/fitment/preview", requireAuth, async (req: Request, res: Response) => {
+router.post("/fitment/preview", requireAuth, requireFitmentVertical, async (req: Request, res: Response) => {
   const merchantId = req.merchantId!;
 
   const parsed = previewFitmentSchema.safeParse(req.body);
@@ -118,7 +135,7 @@ const applyFitmentSchema = z.object({
   applyAll: z.boolean().optional().default(false),
 });
 
-router.post("/fitment/apply", requireAuth, async (req: Request, res: Response) => {
+router.post("/fitment/apply", requireAuth, requireFitmentVertical, async (req: Request, res: Response) => {
   const merchantId = req.merchantId!;
 
   const parsed = applyFitmentSchema.safeParse(req.body);
@@ -146,7 +163,7 @@ const extractFitmentSchema = z.object({
   applyToNormalized: z.boolean().optional().default(false),
 });
 
-router.post("/fitment/extract", requireAuth, async (req: Request, res: Response) => {
+router.post("/fitment/extract", requireAuth, requireFitmentVertical, async (req: Request, res: Response) => {
   const merchantId = req.merchantId!;
 
   const parsed = extractFitmentSchema.safeParse(req.body);

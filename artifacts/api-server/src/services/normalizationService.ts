@@ -90,6 +90,7 @@ interface NormalizedFields {
   manufacturer?: string;
   mpn?: string;
   upc?: string;
+  asin?: string;
   price?: string;
   color?: string;
   finish?: string;
@@ -150,13 +151,14 @@ export function rulesBasedNormalize(raw: RawProductRow): NormalizedFields {
 
   const fields: NormalizedFields = {
     sku: raw.sku,
-    productTitle: String(all["name"] ?? "").trim() || undefined,
+    productTitle: String(all["name"] ?? all["title"] ?? all["product_name"] ?? all["product_title"] ?? all["item_name"] ?? "").trim() || undefined,
     description: String(all["description"] ?? "").trim() || undefined,
     shortDescription: String(all["short_description"] ?? "").trim() || undefined,
     brand: String(all["brand"] ?? all["manufacturer"] ?? all["mfg"] ?? "").trim() || undefined,
     manufacturer: String(all["manufacturer"] ?? all["mfg"] ?? all["make"] ?? "").trim() || undefined,
     mpn: String(all["mpn"] ?? all["part_number"] ?? all["part_no"] ?? "").trim() || undefined,
     upc: String(all["upc"] ?? all["upc_code"] ?? all["ean"] ?? all["barcode"] ?? "").trim() || undefined,
+    asin: String(all["asin"] ?? all["amazon_asin"] ?? all["amazon_id"] ?? "").trim() || undefined,
     price: priceStr,
     color: normalizedColor,
     finish: normalizedFinish,

@@ -33,6 +33,7 @@ const allowedOrigins = [
   "https://id-preview--e2850076-57e5-4c16-a21b-819c1d133972.lovable.app",
   "http://localhost:3000",
   "http://localhost:5173",
+  "https://status.vare-ai.com",
 ];
 
 app.use(
