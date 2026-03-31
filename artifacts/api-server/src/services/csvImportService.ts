@@ -9,7 +9,7 @@ import { eq, and } from "drizzle-orm";
 
 export const VARE_FIELDS = [
   { field: "sku", label: "SKU", required: true },
-  { field: "name", label: "Product Name", required: true },
+  { field: "name", label: "Product Name", required: false },
   { field: "description", label: "Description", required: false },
   { field: "short_description", label: "Short Description", required: false },
   { field: "brand", label: "Brand", required: false },
@@ -218,9 +218,8 @@ export async function runImport(uploadId: string, merchantId: string): Promise<{
       };
 
       const sku = get("sku")?.trim();
-      const name = get("name")?.trim();
+      const name = get("name")?.trim() || sku;
       if (!sku) { importErrors.push({ row: rowNum, error: "Missing SKU" }); continue; }
-      if (!name) { importErrors.push({ row: rowNum, error: "Missing product name" }); continue; }
 
       const rawPrice = get("price");
       const price = rawPrice ? parseFloat(rawPrice.replace(/[^0-9.-]/g, "")) : undefined;
