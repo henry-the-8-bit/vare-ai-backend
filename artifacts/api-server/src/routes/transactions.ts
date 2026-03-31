@@ -1,6 +1,6 @@
 import { Router, type IRouter, type Request, type Response } from "express";
 import { db } from "@workspace/db";
-import { transactionEventsTable, agentOrdersTable } from "@workspace/db/schema";
+import { transactionEventsTable, agentOrdersTable, agentQueriesTable } from "@workspace/db/schema";
 import { eq, and, desc, sql, ilike, or, gte, lte } from "drizzle-orm";
 import { requireAuth } from "../middlewares/auth.js";
 import { paginatedResponse, successResponse } from "../lib/response.js";
@@ -304,6 +304,143 @@ router.get("/transactions/stats", requireAuth, async (req: Request, res: Respons
     avgResponseMs: totals.avgDuration,
     activeAgents: platformRows.length,
     agentNames: platformRows.map(r => r.platform).filter(Boolean),
+  });
+});
+
+// ── GET /transactions/analytics — aggregated analytics for TransactionAnalytics component ──
+router.get("/transactions/analytics", requireAuth, async (req: Request, res: Response) => {
+  const merchantId = req.merchantId!;
+  const range = parseRange(req.query["range"]);
+  const { from, to } = getDateBounds(range);
+
+  const baseWhere = and(
+    eq(transactionEventsTable.merchantId, merchantId),
+    gte(transactionEventsTable.createdAt, from),
+    lte(transactionEventsTable.createdAt, to),
+  );
+
+  const queryWhere = and(
+    eq(agentQueriesTable.merchantId, merchantId),
+    gte(agentQueriesTable.createdAt, from),
+    lte(agentQueriesTable.createdAt, to),
+  );
+
+  const [topQueries, zeroResultQueries, agentComparison, hourlyHeatmap, errorBreakdown] = await Promise.all([
+    // Top 10 queries by count with conversion estimate
+    db
+      .select({
+        query: agentQueriesTable.queryText,
+        count: sql<number>`count(*)::int`,
+        matchedCount: sql<number>`count(*) filter (where ${agentQueriesTable.wasMatched} = true)::int`,
+      })
+      .from(agentQueriesTable)
+      .where(queryWhere)
+      .groupBy(agentQueriesTable.queryText)
+      .orderBy(desc(sql`count(*)`))
+      .limit(10),
+
+    // Top zero-result queries
+    db
+      .select({
+        query: agentQueriesTable.queryText,
+        count: sql<number>`count(*)::int`,
+      })
+      .from(agentQueriesTable)
+      .where(and(queryWhere, eq(agentQueriesTable.wasMatched, false)))
+      .groupBy(agentQueriesTable.queryText)
+      .orderBy(desc(sql`count(*)`))
+      .limit(10),
+
+    // Agent/platform comparison
+    db
+      .select({
+        agent: transactionEventsTable.agentPlatform,
+        volume: sql<number>`count(*)::int`,
+        sessions: sql<number>`count(distinct ${transactionEventsTable.sessionId})::int`,
+        failed: sql<number>`count(*) filter (where ${transactionEventsTable.status} = 'failed')::int`,
+        avgDuration: sql<number>`coalesce(avg(${transactionEventsTable.durationMs}), 0)::int`,
+      })
+      .from(transactionEventsTable)
+      .where(baseWhere)
+      .groupBy(transactionEventsTable.agentPlatform)
+      .orderBy(desc(sql`count(*)`)),
+
+    // Hourly heatmap: hour × day-of-week grid
+    db
+      .select({
+        dow: sql<number>`extract(isodow from ${transactionEventsTable.createdAt})::int`,
+        hour: sql<number>`extract(hour from ${transactionEventsTable.createdAt})::int`,
+        value: sql<number>`count(*)::int`,
+      })
+      .from(transactionEventsTable)
+      .where(baseWhere)
+      .groupBy(sql`extract(isodow from ${transactionEventsTable.createdAt})`, sql`extract(hour from ${transactionEventsTable.createdAt})`),
+
+    // Error breakdown by metadata error type or event type
+    db
+      .select({
+        type: sql<string>`coalesce(${transactionEventsTable.metadata}->>'errorType', ${transactionEventsTable.eventType}, 'Unknown')`,
+        count: sql<number>`count(*)::int`,
+      })
+      .from(transactionEventsTable)
+      .where(and(baseWhere, eq(transactionEventsTable.status, "failed")))
+      .groupBy(sql`coalesce(${transactionEventsTable.metadata}->>'errorType', ${transactionEventsTable.eventType}, 'Unknown')`)
+      .orderBy(desc(sql`count(*)`))
+      .limit(10),
+  ]);
+
+  // Format top queries with conversion rate
+  const formattedTopQueries = topQueries.map((q) => ({
+    query: q.query ?? "",
+    count: q.count,
+    conversion: q.count > 0 ? `${((q.matchedCount / q.count) * 100).toFixed(1)}%` : "0%",
+  }));
+
+  // Format zero-result queries
+  const formattedZeroResult = zeroResultQueries.map((q) => ({
+    query: q.query ?? "",
+    count: q.count,
+  }));
+
+  // Format agent comparison with derived rates
+  const agentNames: Record<string, string> = {
+    chatgpt: "ChatGPT", gemini: "Gemini", claude: "Claude",
+    perplexity: "Perplexity", copilot: "Copilot",
+  };
+  const formattedAgents = agentComparison.map((a) => {
+    const platform = (a.agent ?? "unknown").toLowerCase();
+    const errorRate = a.volume > 0 ? Math.round((a.failed / a.volume) * 1000) / 10 : 0;
+    return {
+      agent: agentNames[platform] ?? platform.charAt(0).toUpperCase() + platform.slice(1),
+      volume: a.volume,
+      convRate: 0, // Would need order join for true conversion — placeholder
+      aov: 0,
+      errorRate,
+    };
+  });
+
+  // Build heatmap grid: 7 days × 24 hours
+  const days = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
+  const heatmapGrid = days.map((day, di) =>
+    Array.from({ length: 24 }, (_, hour) => {
+      const match = hourlyHeatmap.find((h) => h.dow === di + 1 && h.hour === hour);
+      return { day, hour, value: match?.value ?? 0 };
+    }),
+  );
+
+  // Format error breakdown with percentages
+  const totalErrors = errorBreakdown.reduce((s, e) => s + e.count, 0);
+  const formattedErrors = errorBreakdown.map((e) => ({
+    type: e.type,
+    pct: totalErrors > 0 ? Math.round((e.count / totalErrors) * 100) : 0,
+  }));
+
+  successResponse(res, {
+    topQueries: formattedTopQueries,
+    zeroResultQueries: formattedZeroResult,
+    agentComparison: formattedAgents,
+    heatmapData: heatmapGrid,
+    errorBreakdown: formattedErrors,
   });
 });
 
