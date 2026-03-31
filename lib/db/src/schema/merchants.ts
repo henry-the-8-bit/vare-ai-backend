@@ -8,7 +8,7 @@ export const merchantsTable = pgTable("merchants", {
   companyName: varchar("company_name", { length: 200 }).notNull(),
   contactFirstName: varchar("contact_first_name", { length: 100 }),
   contactLastName: varchar("contact_last_name", { length: 100 }),
-  contactEmail: varchar("contact_email", { length: 255 }).notNull(),
+  contactEmail: varchar("contact_email", { length: 255 }),
   contactPhone: varchar("contact_phone", { length: 50 }),
   estimatedSkuCount: varchar("estimated_sku_count", { length: 50 }),
   primaryVertical: varchar("primary_vertical", { length: 100 }),

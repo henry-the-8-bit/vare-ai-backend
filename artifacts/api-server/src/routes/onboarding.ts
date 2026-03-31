@@ -13,7 +13,7 @@ const createMerchantSchema = z.object({
   companyName: z.string().min(1),
   contactFirstName: z.string().optional(),
   contactLastName: z.string().optional(),
-  contactEmail: z.string().email(),
+  contactEmail: z.string().email().optional(),
   contactPhone: z.string().optional(),
   estimatedSkuCount: z.string().optional(),
   primaryVertical: z.string().optional(),
